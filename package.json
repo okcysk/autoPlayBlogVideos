@@ -1,6 +1,6 @@
 {
   "name": "auto-play-blog-videos",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "記事一覧ページから埋め込み動画を抽出して連続再生するツール",

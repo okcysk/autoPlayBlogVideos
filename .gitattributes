@@ -1,0 +1,2 @@
+# フックは sh で実行されるため常に LF にする
+.githooks/* text eol=lf

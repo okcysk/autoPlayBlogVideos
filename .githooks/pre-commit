@@ -1,0 +1,3 @@
+#!/bin/sh
+# 有効にするには: git config core.hooksPath .githooks
+exec node .githooks/bump-version.mjs

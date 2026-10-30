@@ -12,6 +12,7 @@
   body { margin:0; height:100dvh; display:flex; flex-direction:column; overflow:hidden; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; }
   header { flex:none; padding:8px 16px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
   header h1 { font-size:15px; margin:0 8px 0 0; white-space:nowrap; }
+  header h1 .ver { font-size:11px; font-weight:normal; color:var(--muted); margin-left:4px; }
   input, select, button { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 10px; font:inherit; }
   input[type=url] { flex:1 1 240px; min-width:0; }
   button { cursor:pointer; }
@@ -51,7 +52,8 @@
 </head>
 <body>
 <header>
-  <h1>記事動画オートプレイヤー</h1>
+  <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.1</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://bazurecipe.com/">料理: リュウジのバズレシピ.com</option>
@@ -173,6 +175,7 @@ function play(i) {
             else if (e.data === YT.PlayerState.PLAYING) applyPrefs();
           },
           onError: () => { setStatus('この動画は埋め込み再生できないためスキップしました'); next(); },
+          onAutoplayBlocked: () => autoplayBlocked(),
         },
       });
     } else {
@@ -196,6 +199,7 @@ function play(i) {
     el.onended = next;
     el.onerror = () => { setStatus('動画ファイルを再生できないためスキップしました'); next(); };
     $('stage').appendChild(el);
+    el.play().catch((err) => { if (err.name === 'NotAllowedError') autoplayBlocked(); });
   } else {
     fallbackTimer = setTimeout(next, Math.max(10, +$('timeout').value) * 1000);
   }
@@ -319,6 +323,16 @@ function applyPrefs() {
       if (playing) seekBy(extra * dt);
     }, 500);
   }
+}
+
+// ブラウザが音声付きの自動再生を止めたときは、ミュートなら許可されるのでミュートで再生し直す
+function autoplayBlocked() {
+  prefs.muted = true;
+  applyPrefs();
+  if (active() === 'youtube') ytPlayer.playVideo();
+  else if (active() === 'file') videoEl.play().catch(() => {});
+  osd('自動再生がブロックされたためミュートで再生中（M で解除）');
+  setStatus('ブラウザの自動再生制限によりミュートで再生しています。M キーで音声を戻せます');
 }
 
 let osdTimer = null;
