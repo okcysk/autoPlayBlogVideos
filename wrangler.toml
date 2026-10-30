@@ -5,3 +5,5 @@ compatibility_date = "2025-09-01"
 [vars]
 # 取得を許可するホスト（カンマ区切り、サブドメインも許可）。空にすると制限なし
 ALLOWED_HOSTS = "bazurecipe.com,automaton-media.com"
+# API を呼んでよい画面のオリジン（GitHub Pages など）。カンマ区切り
+ALLOWED_ORIGINS = "https://okcysk.github.io"

@@ -32,6 +32,13 @@ npx wrangler login   # 初回のみ。ブラウザで Cloudflare にログイン
 npm run deploy       # https://auto-play-blog-videos.<アカウント>.workers.dev に公開
 ```
 
+### GitHub Pages から使う
+
+GitHub Pages は静的ファイルしか配信できないため、Pages で開いた画面は Worker の API を呼びます。
+
+- `index.html` の `WORKER_URL` にデプロイした Worker の URL を書く
+- `wrangler.toml` の `ALLOWED_ORIGINS` に Pages のオリジン（例: `https://okcysk.github.io`）を書く
+
 デプロイ前にローカルで確認するには `npm run dev:cf`（http://localhost:8787）を使います。
 
 ### 取得できるサイトの制限
