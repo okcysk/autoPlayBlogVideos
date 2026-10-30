@@ -1,4 +1,4 @@
-// ローカル実行用サーバー（依存パッケージなし）。抽出処理は src/core.js
+// ローカル実行用サーバー（依存パッケージなし）。抽出処理は src/core.js、画面は index.html
 // 使い方: node server.js → http://localhost:3000
 import http from 'node:http';
 import fs from 'node:fs';
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { handleApi, fetchHtml } from './src/core.js';
 
 const PORT = process.env.PORT || 3000;
-const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
+const INDEX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'index.html');
 const allowedHosts = process.env.ALLOWED_HOSTS?.split(',').map((h) => h.trim()).filter(Boolean);
 
 // 同じページを何度も取りに行かないようメモリにキャッシュする
@@ -24,14 +24,11 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(api.status, { 'Content-Type': 'application/json; charset=utf-8' });
     return res.end(JSON.stringify(api.body));
   }
-  // 静的ファイル
-  const file = u.pathname === '/' ? 'index.html' : u.pathname.slice(1);
-  const full = path.join(PUBLIC, file);
-  if (!full.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
-  fs.readFile(full, (err, data) => {
-    if (err) { res.writeHead(404); return res.end('Not found'); }
-    const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
-    res.writeHead(200, { 'Content-Type': (types[path.extname(full)] || 'application/octet-stream') + '; charset=utf-8' });
+  // 画面は index.html だけを返す（server.js などほかのファイルは配信しない）
+  if (u.pathname !== '/' && u.pathname !== '/index.html') { res.writeHead(404); return res.end('Not found'); }
+  fs.readFile(INDEX, (err, data) => {
+    if (err) { res.writeHead(500); return res.end('index.html not found'); }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(data);
   });
 });

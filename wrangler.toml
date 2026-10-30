@@ -2,10 +2,6 @@ name = "auto-play-blog-videos"
 main = "src/worker.js"
 compatibility_date = "2025-09-01"
 
-[assets]
-directory = "./public"
-binding = "ASSETS"
-
 [vars]
 # 取得を許可するホスト（カンマ区切り、サブドメインも許可）。空にすると制限なし
 ALLOWED_HOSTS = "bazurecipe.com,automaton-media.com"

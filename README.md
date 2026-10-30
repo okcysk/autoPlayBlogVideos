@@ -24,7 +24,7 @@ npm start
 
 ## Cloudflare Workers で動かす
 
-`public/` は静的アセットとして配信し、`/api/*` だけを Worker（`src/worker.js`）で処理します。
+Worker（`src/worker.js`）が `/api/*` を処理し、それ以外は `index.html` を返します（`index.html` はデプロイ時に Worker に同梱されます）。
 
 ```bash
 npm install
@@ -80,9 +80,9 @@ ALLOWED_HOSTS = "bazurecipe.com,automaton-media.com"
 - `src/core.js` — 一覧ページから記事リンクを集め、各記事から動画を抽出する処理（共通）
   - `GET /api/list?url=...&pages=N&filter=...`
   - `GET /api/videos?url=...`
-- `server.js` — ローカル用の Node サーバー（API と `public/` の配信）
+- `server.js` — ローカル用の Node サーバー（API と `index.html` の配信。ほかのファイルは配信しない）
 - `src/worker.js` / `wrangler.toml` — Cloudflare Workers 用
-- `public/index.html` — プレイヤー画面
+- `index.html` — プレイヤー画面
 
 ## 既知の制限
 
