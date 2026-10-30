@@ -1,0 +1,13 @@
+{
+  "name": "auto-play-blog-videos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "記事一覧ページから埋め込み動画を抽出して連続再生するローカルツール",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

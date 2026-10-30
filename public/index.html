@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>記事動画オートプレイヤー</title>
+<style>
+  :root { --bg:#111418; --panel:#1b2027; --line:#2c333d; --text:#e8ebef; --muted:#8a94a3; --accent:#4f9cf9; }
+  * { box-sizing: border-box; }
+  /* 画面全体を1画面に収め、スクロールは再生キューの中だけにする */
+  html, body { height:100%; }
+  body { margin:0; height:100dvh; display:flex; flex-direction:column; overflow:hidden; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+  header { flex:none; padding:8px 16px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  header h1 { font-size:15px; margin:0 8px 0 0; white-space:nowrap; }
+  input, select, button { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 10px; font:inherit; }
+  input[type=url] { flex:1 1 240px; min-width:0; }
+  button { cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  main { flex:1; min-height:0; display:grid; grid-template-columns: minmax(0,1fr) 340px; gap:12px; padding:12px 16px; }
+  section { display:flex; flex-direction:column; min-height:0; min-width:0; }
+  /* 残りの高さと幅の両方に収まる最大の 16:9 にする */
+  #stageWrap { flex:1; min-height:0; container-type:size; display:flex; align-items:center; justify-content:center; }
+  #stage { position:relative; width:min(100cqw, 100cqh * 16 / 9); aspect-ratio:16/9; background:#000; border-radius:8px; overflow:hidden; }
+  #stage > * { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  #info { flex:none; }
+  #now { margin:8px 0 4px; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #now a { color:var(--accent); font-weight:normal; font-size:12px; margin-left:8px; }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:13px; }
+  #status { color:var(--muted); font-size:12px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  aside { min-height:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:auto; }
+  @media (max-width: 900px) {
+    main { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); padding:8px; gap:8px; }
+    #stageWrap { flex:none; container-type:normal; }
+    #stage { width:100%; }
+    #keys, header h1 { display:none; }
+    header { padding:8px; gap:6px; }
+  }
+  aside h2 { font-size:13px; margin:0; padding:10px 12px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); }
+  ol { list-style:none; margin:0; padding:0; }
+  li { padding:8px 12px; border-bottom:1px solid var(--line); cursor:pointer; display:flex; gap:10px; }
+  li:hover { background:#232a33; }
+  li.active { background:#203048; }
+  li img { width:96px; height:54px; object-fit:cover; border-radius:4px; flex:none; background:#000; }
+  li .t { font-size:12px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+  li .k { color:var(--muted); font-size:11px; }
+  #osd { position:absolute; inset:auto auto 16px 16px; width:auto; height:auto; padding:6px 12px; background:rgba(0,0,0,.75); color:#fff; border-radius:6px; font-size:15px; pointer-events:none; opacity:0; transition:opacity .3s; z-index:2; }
+  #osd.show { opacity:1; }
+  #keys { color:var(--muted); font-size:12px; margin-top:4px; }
+  #keys kbd { background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 5px; font:inherit; }
+</style>
+</head>
+<body>
+<header>
+  <h1>記事動画オートプレイヤー</h1>
+  <select id="preset">
+    <option value="">プリセット…</option>
+    <option value="https://bazurecipe.com/">料理: リュウジのバズレシピ.com</option>
+    <option value="https://automaton-media.com/">ゲーム: AUTOMATON</option>
+  </select>
+  <input id="url" type="url" placeholder="記事一覧ページのURL">
+  <label>ページ数 <input id="pages" type="number" min="1" max="50" value="3" style="width:64px"></label>
+  <input id="filter" placeholder="記事URLの正規表現（任意）" style="flex:0 1 200px; min-width:0">
+  <button id="start" class="primary">読み込んで再生</button>
+</header>
+<main>
+  <section>
+    <div id="stageWrap"><div id="stage"><div id="yt"></div><div id="osd"></div></div></div>
+    <div id="info">
+    <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
+    <div class="controls">
+      <button id="prev">⏮ 前へ</button>
+      <button id="next">次へ ⏭</button>
+      <label><input type="checkbox" id="shuffle"> シャッフル</label>
+      <label>埋め込み不明動画の自動送り <input id="timeout" type="number" min="10" value="180" style="width:72px">秒</label>
+    </div>
+    <div id="keys"><kbd>B</kbd>/<kbd>N</kbd> 前後の動画 · <kbd>Z</kbd>/<kbd>X</kbd> 5秒 · <kbd>C</kbd>/<kbd>V</kbd> 30秒 · <kbd>↑</kbd>/<kbd>↓</kbd> 音量±10% · <kbd>M</kbd> ミュート · <kbd>F</kbd> 等速 · <kbd>G</kbd> 2.5倍⇄等速 · <kbd>H</kbd> 10倍⇄等速 · <kbd>Space</kbd> 再生/停止</div>
+    <div id="status"></div>
+    </div>
+  </section>
+  <aside>
+    <h2 id="qhead">再生キュー (0)</h2>
+    <ol id="queue"></ol>
+  </aside>
+</main>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script src="https://player.vimeo.com/api/player.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const queue = [];          // {type, id, title, article}
+const seenVideos = new Set();
+let current = -1;
+let ytPlayer = null, ytReady = false, ytPlayerReady = false, ytPending = null, fallbackTimer = null;
+let loadToken = 0;
+let reachedEnd = false;  // キュー末尾まで再生し終えて追加待ちの状態
+let vimeoPlayer = null, videoEl = null;
+// 動画をまたいで維持する再生設定
+const prefs = { volume: 100, muted: false, rate: 1 };
+let rateTimer = null;
+
+window.onYouTubeIframeAPIReady = () => { ytReady = true; };
+
+$('preset').onchange = (e) => { if (e.target.value) $('url').value = e.target.value; };
+
+function setStatus(s) { $('status').textContent = s; }
+
+function thumb(v) {
+  if (v.type === 'youtube') return `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`;
+  return '';
+}
+
+function renderQueue() {
+  $('qhead').textContent = `再生キュー (${queue.length})`;
+  const ol = $('queue');
+  ol.innerHTML = '';
+  queue.forEach((v, i) => {
+    const li = document.createElement('li');
+    if (i === current) li.className = 'active';
+    li.innerHTML = `${thumb(v) ? `<img loading="lazy" src="${thumb(v)}" alt="">` : ''}<div><div class="t"></div><div class="k">${v.type}</div></div>`;
+    li.querySelector('.t').textContent = v.title || v.article;
+    li.onclick = () => play(i);
+    ol.appendChild(li);
+  });
+  ol.children[current]?.scrollIntoView({ block: 'nearest' });
+}
+
+function clearStage() {
+  clearTimeout(fallbackTimer);
+  vimeoPlayer = null; videoEl = null;
+  const stage = $('stage');
+  [...stage.children].forEach((c) => { if (c.id !== 'yt' && c.id !== 'osd' && !(ytPlayer && c === ytPlayer.getIframe())) c.remove(); });
+  if (ytPlayer) { try { ytPlayer.stopVideo(); } catch {} ytPlayer.getIframe().style.display = 'none'; }
+}
+
+function next() {
+  if (!queue.length) return;
+  if ($('shuffle').checked) return play(Math.floor(Math.random() * queue.length));
+  if (current + 1 < queue.length) play(current + 1);
+  else { reachedEnd = true; setStatus('キューの最後まで再生しました（読み込み中なら追加され次第続きます）'); }
+}
+
+function play(i) {
+  current = i;
+  reachedEnd = false;
+  const v = queue[i];
+  clearStage();
+  $('now').innerHTML = '';
+  $('now').append(document.createTextNode(v.title || v.article));
+  const a = document.createElement('a');
+  a.href = v.article; a.target = '_blank'; a.rel = 'noopener'; a.textContent = '記事を開く ↗';
+  $('now').append(a);
+  renderQueue();
+
+  if (v.type === 'youtube') {
+    if (!ytReady) { setTimeout(() => play(i), 500); return; }
+    if (!ytPlayer) {
+      ytPlayer = new YT.Player('yt', {
+        videoId: v.id,
+        playerVars: { autoplay: 1, rel: 0, playsinline: 1 },
+        events: {
+          onReady: (e) => {
+            ytPlayerReady = true;
+            // 準備中に別の動画が選ばれていたらそちらを読み込む
+            if (ytPending && ytPending !== v.id) e.target.loadVideoById(ytPending);
+            else e.target.playVideo();
+            applyPrefs();
+          },
+          onStateChange: (e) => {
+            if (e.data === YT.PlayerState.ENDED) next();
+            else if (e.data === YT.PlayerState.PLAYING) applyPrefs();
+          },
+          onError: () => { setStatus('この動画は埋め込み再生できないためスキップしました'); next(); },
+        },
+      });
+    } else {
+      ytPlayer.getIframe().style.display = '';
+      if (ytPlayerReady) ytPlayer.loadVideoById(v.id);
+    }
+    ytPending = v.id;
+  } else if (v.type === 'vimeo') {
+    const f = document.createElement('iframe');
+    f.src = `https://player.vimeo.com/video/${v.id}?autoplay=1`;
+    f.allow = 'autoplay; fullscreen; picture-in-picture';
+    $('stage').appendChild(f);
+    const p = vimeoPlayer = new Vimeo.Player(f);
+    p.on('ended', next);
+    p.on('error', next);
+    p.ready().then(applyPrefs);
+  } else if (v.type === 'file') {
+    const el = videoEl = document.createElement('video');
+    el.onloadedmetadata = applyPrefs;
+    el.src = v.id; el.controls = true; el.autoplay = true; el.playsInline = true;
+    el.onended = next;
+    el.onerror = () => { setStatus('動画ファイルを再生できないためスキップしました'); next(); };
+    $('stage').appendChild(el);
+  } else {
+    fallbackTimer = setTimeout(next, Math.max(10, +$('timeout').value) * 1000);
+  }
+}
+
+async function api(path, params) {
+  const r = await fetch(path + '?' + new URLSearchParams(params));
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+$('start').onclick = async () => {
+  const url = $('url').value.trim();
+  if (!url) return;
+  const token = ++loadToken;
+  queue.length = 0; seenVideos.clear(); current = -1; reachedEnd = false;
+  clearStage(); renderQueue();
+  try {
+    setStatus('記事一覧を取得中…');
+    const params = { url, pages: $('pages').value };
+    if ($('filter').value.trim()) params.filter = $('filter').value.trim();
+    const { links, pagesFetched } = await api('/api/list', params);
+    setStatus(`${pagesFetched}ページから記事 ${links.length} 件を見つけました。動画を抽出中…`);
+    let done = 0;
+    const work = links.slice();
+    const worker = async () => {
+      while (work.length && token === loadToken) {
+        const l = work.shift();
+        try {
+          const { title, videos } = await api('/api/videos', { url: l.url });
+          for (const v of videos) {
+            const key = v.type + ':' + v.id;
+            if (seenVideos.has(key)) continue;
+            seenVideos.add(key);
+            queue.push({ ...v, title: title || l.title, article: l.url });
+            if (current === -1) play(0);
+            else if (reachedEnd) play(queue.length - 1);
+          }
+        } catch (e) { console.warn(l.url, e); }
+        if (token !== loadToken) return;
+        done++;
+        setStatus(`動画抽出 ${done}/${links.length} 記事・キュー ${queue.length} 本`);
+        renderQueue();
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    if (token === loadToken) setStatus(`抽出完了: ${links.length} 記事から ${queue.length} 本の動画`);
+  } catch (e) {
+    setStatus('エラー: ' + e.message);
+  }
+};
+
+
+// ---- 再生制御（YouTube / Vimeo / <video> 共通） ----
+const active = () => videoEl ? 'file' : vimeoPlayer ? 'vimeo'
+  : (ytPlayerReady && ytPlayer.getIframe().style.display !== 'none') ? 'youtube' : null;
+
+async function getTime() {
+  switch (active()) {
+    case 'file': return videoEl.currentTime;
+    case 'vimeo': return vimeoPlayer.getCurrentTime();
+    case 'youtube': return ytPlayer.getCurrentTime();
+  }
+  return 0;
+}
+
+async function seekBy(sec) {
+  const t = Math.max(0, (await getTime()) + sec);
+  switch (active()) {
+    case 'file': videoEl.currentTime = t; break;
+    case 'vimeo': await vimeoPlayer.setCurrentTime(t).catch(() => {}); break;
+    case 'youtube': ytPlayer.seekTo(t, true); break;
+  }
+}
+
+async function togglePlay() {
+  switch (active()) {
+    case 'file': if (videoEl.paused) { videoEl.play(); return true; } videoEl.pause(); return false;
+    case 'vimeo': if (await vimeoPlayer.getPaused()) { vimeoPlayer.play(); return true; } vimeoPlayer.pause(); return false;
+    case 'youtube':
+      if (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING) { ytPlayer.pauseVideo(); return false; }
+      ytPlayer.playVideo(); return true;
+  }
+}
+
+// プレイヤーが対応する最大速度（YouTube/Vimeo は 2 倍まで）。超える分はシークで早送りを補う
+const nativeMaxRate = () => active() === 'file' ? 16 : 2;
+
+function applyPrefs() {
+  const kind = active();
+  const native = Math.min(prefs.rate, nativeMaxRate());
+  if (kind === 'file') {
+    videoEl.volume = prefs.volume / 100; videoEl.muted = prefs.muted; videoEl.playbackRate = native;
+  } else if (kind === 'vimeo') {
+    vimeoPlayer.setVolume(prefs.muted ? 0 : prefs.volume / 100).catch(() => {});
+    vimeoPlayer.setPlaybackRate(native).catch(() => {});
+  } else if (kind === 'youtube') {
+    ytPlayer.setVolume(prefs.volume);
+    prefs.muted ? ytPlayer.mute() : ytPlayer.unMute();
+    ytPlayer.setPlaybackRate(native);
+  }
+  clearInterval(rateTimer);
+  const extra = prefs.rate - native;
+  if (extra > 0) {
+    // シーク後のバッファリング中も実時間ぶん進め、目標速度に近づける
+    let last = performance.now();
+    rateTimer = setInterval(async () => {
+      const now = performance.now(), dt = (now - last) / 1000;
+      last = now;
+      const kind = active();
+      const playing = kind === 'youtube' ? [YT.PlayerState.PLAYING, YT.PlayerState.BUFFERING].includes(ytPlayer.getPlayerState())
+        : kind === 'vimeo' ? !(await vimeoPlayer.getPaused()) : false;
+      if (playing) seekBy(extra * dt);
+    }, 500);
+  }
+}
+
+let osdTimer = null;
+function osd(text) {
+  const el = $('osd');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(osdTimer);
+  osdTimer = setTimeout(() => el.classList.remove('show'), 1200);
+}
+
+function setRate(r) {
+  prefs.rate = r;
+  applyPrefs();
+  osd(r === 1 ? '等速' : `${r}倍速` + (r > nativeMaxRate() ? '（シークで補完）' : ''));
+}
+
+function setVolume(v) {
+  prefs.volume = Math.max(0, Math.min(100, v));
+  prefs.muted = false;
+  applyPrefs();
+  osd(`音量 ${prefs.volume}%`);
+}
+
+const keyActions = {
+  b: () => { if (current > 0) play(current - 1); },
+  n: () => next(),
+  z: () => { seekBy(-5); osd('⏪ 5秒'); },
+  x: () => { seekBy(5); osd('5秒 ⏩'); },
+  c: () => { seekBy(-30); osd('⏪ 30秒'); },
+  v: () => { seekBy(30); osd('30秒 ⏩'); },
+  ArrowUp: () => setVolume(prefs.volume + 10),
+  ArrowDown: () => setVolume(prefs.volume - 10),
+  m: () => { prefs.muted = !prefs.muted; applyPrefs(); osd(prefs.muted ? 'ミュート' : `音量 ${prefs.volume}%`); },
+  f: () => setRate(1),
+  // G / H はもう一度押すと等速に戻る
+  g: () => setRate(prefs.rate === 2.5 ? 1 : 2.5),
+  h: () => setRate(prefs.rate === 10 ? 1 : 10),
+  ' ': async () => osd((await togglePlay()) ? '▶ 再生' : '⏸ 停止'),
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target.closest('input, select, textarea')) return;
+  const fn = keyActions[e.key.length === 1 ? e.key.toLowerCase() : e.key];
+  if (!fn) return;
+  e.preventDefault();
+  fn();
+});
+
+// 動画内をクリックすると iframe にフォーカスが移りキーが届かなくなるため、親ページへ戻す
+window.addEventListener('blur', () => setTimeout(() => {
+  if (document.activeElement?.tagName === 'IFRAME') document.activeElement.blur();
+}, 0));
+
+$('next').onclick = next;
+$('prev').onclick = () => { if (current > 0) play(current - 1); };
+</script>
+</body>
+</html>
