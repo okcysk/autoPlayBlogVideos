@@ -6,7 +6,7 @@
 
 - Node.js 18 以上（依存パッケージなし）
 
-## 使い方
+## 使い方（ローカル）
 
 ```bash
 npm start
@@ -21,6 +21,34 @@ npm start
 | ページ数 | 「次のページ」リンクをたどって読み込むページ数（最大 50） |
 | 記事URLの正規表現 | 記事以外のリンクを拾ってしまう場合に記事 URL を絞り込む（例: `/20\d\d/`） |
 | シャッフル | キューからランダムに再生する |
+
+## Cloudflare Workers で動かす
+
+`public/` は静的アセットとして配信し、`/api/*` だけを Worker（`src/worker.js`）で処理します。
+
+```bash
+npm install
+npx wrangler login   # 初回のみ。ブラウザで Cloudflare にログイン
+npm run deploy       # https://auto-play-blog-videos.<アカウント>.workers.dev に公開
+```
+
+デプロイ前にローカルで確認するには `npm run dev:cf`（http://localhost:8787）を使います。
+
+### 取得できるサイトの制限
+
+公開すると誰でもこの Worker 経由でページを取得できてしまうため、`wrangler.toml` の `ALLOWED_HOSTS` に書いたホスト（とそのサブドメイン）だけを取得するようにしています。使いたいサイトを追加してから `npm run deploy` してください。空文字にすると制限なしになります。
+
+```toml
+[vars]
+ALLOWED_HOSTS = "bazurecipe.com,automaton-media.com"
+```
+
+ローカルの `npm start` では制限はありません（環境変数 `ALLOWED_HOSTS` を設定すると同じ制限がかかります）。
+
+### 無料プランの制限
+
+- 1 リクエストあたりの外部取得は 50 回まで → 「ページ数」は 50 が上限です。
+- 1 リクエストあたりの CPU 時間は 10ms まで → 非常に大きなページの解析は失敗する場合があります。
 
 ## 対応している動画
 
@@ -49,9 +77,11 @@ npm start
 
 ## 構成
 
-- `server.js` — 一覧ページから記事リンクを集め、各記事から動画を抽出する API とファイル配信
+- `src/core.js` — 一覧ページから記事リンクを集め、各記事から動画を抽出する処理（共通）
   - `GET /api/list?url=...&pages=N&filter=...`
   - `GET /api/videos?url=...`
+- `server.js` — ローカル用の Node サーバー（API と `public/` の配信）
+- `src/worker.js` / `wrangler.toml` — Cloudflare Workers 用
 - `public/index.html` — プレイヤー画面
 
 ## 既知の制限

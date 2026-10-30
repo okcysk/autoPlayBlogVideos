@@ -2,12 +2,22 @@
   "name": "auto-play-blog-videos",
   "version": "0.1.0",
   "private": true,
-  "description": "記事一覧ページから埋め込み動画を抽出して連続再生するローカルツール",
+  "type": "module",
+  "description": "記事一覧ページから埋め込み動画を抽出して連続再生するツール",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev:cf": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
   },
   "engines": {
     "node": ">=18"
+  },
+  "allowScripts": {
+    "workerd@1.20261023.1": true,
+    "esbuild@0.28.2": true
   }
 }
