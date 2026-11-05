@@ -11,14 +11,13 @@ export default {
     const allowedHosts = list(env.ALLOWED_HOSTS);
     // 取得したページは Cloudflare のキャッシュに 5 分置く
     const get = (url) => fetchHtml(url, { cf: { cacheTtl: 300, cacheEverything: true } });
-    const api = await handleApi(u, { fetchHtml: get, allowedHosts, headers: request.headers });
+    const api = await handleApi(u, { fetchHtml: get, allowedHosts });
     if (api) {
       // GitHub Pages など別オリジンの画面から呼べるよう、許可したオリジンにだけ CORS ヘッダーを付ける
       const origin = request.headers.get('Origin');
-      const cors = origin && list(env.ALLOWED_ORIGINS).includes(origin)
+      const headers = origin && list(env.ALLOWED_ORIGINS).includes(origin)
         ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {};
-      if (api.stream) return new Response(api.body, { status: api.status, headers: { ...api.headers, ...cors } });
-      return Response.json(api.body, { status: api.status, headers: cors });
+      return Response.json(api.body, { status: api.status, headers });
     }
     if (u.pathname !== '/' && u.pathname !== '/index.html') return new Response('Not found', { status: 404 });
     return new Response(indexHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });

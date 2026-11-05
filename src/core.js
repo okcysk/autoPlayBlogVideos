@@ -127,10 +127,10 @@ function checkUrl(u, allowedHosts) {
 /**
  * /api/* のリクエストを処理する。API 以外のパスなら null を返す。
  * @param {URL} u リクエストURL
- * @param {{ fetchHtml?: (url: string) => Promise<string>, allowedHosts?: string[], headers?: { get?: (k: string) => string | null, range?: string } }} opts
- * @returns {Promise<{ status: number, body: object, headers?: object, stream?: boolean } | null>}
+ * @param {{ fetchHtml?: (url: string) => Promise<string>, allowedHosts?: string[] }} opts
+ * @returns {Promise<{ status: number, body: object } | null>}
  */
-export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, headers } = {}) {
+export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts } = {}) {
   try {
     if (u.pathname === '/api/list') {
       let url = checkUrl(u.searchParams.get('url'), allowedHosts);
@@ -162,35 +162,9 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
             const f = extractVideos(await get(embedUrl), embedUrl).find((x) => x.type === 'file');
             if (f) Object.assign(v, f);
           } catch { /* 取れなければ埋め込みのまま */ }
-        } else if (v.type === 'pornhub') {
-          // phncdn の mp4 URL は発行元 IP に紐付くため、ブラウザから直接は再生できない。
-          // Worker/サーバー経由で embed→get_media→mp4 を一連のリクエスト内で解決して中継する
-          Object.assign(v, { type: 'file', id: `${u.origin}/api/proxy?p=${v.id}` });
         }
       }));
       return { status: 200, body: { title: pageTitle(html), videos } };
-    }
-    if (u.pathname === '/api/proxy') {
-      const id = u.searchParams.get('p') || '';
-      if (!/^[a-z0-9]{10,16}$/i.test(id)) throw new Error('bad proxy id');
-      const embedUrl = `https://www.pornhub.com/embed/${id}`;
-      const eh = await get(embedUrl);
-      const gm = eh.match(/"videoUrl":"((?:[^"\\]|\\.)*get_media(?:[^"\\]|\\.)*)"/);
-      if (!gm) throw new Error('get_media URL not found');
-      const list = JSON.parse(await get(JSON.parse(`"${gm[1]}"`)));
-      const mp4 = (Array.isArray(list) ? list : [list]).find((x) => x.format === 'mp4')?.videoUrl;
-      if (!mp4) throw new Error('mp4 URL not found');
-      const range = headers?.get?.('range') || headers?.range;
-      const up = await fetch(mp4, {
-        redirect: 'follow',
-        headers: { 'User-Agent': UA, Referer: embedUrl, ...(range ? { Range: range } : {}) },
-      });
-      const outHeaders = {};
-      for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
-        const val = up.headers.get(k);
-        if (val) outHeaders[k] = val;
-      }
-      return { status: up.status, headers: outHeaders, body: up.body, stream: true };
     }
     return null;
   } catch (e) {
