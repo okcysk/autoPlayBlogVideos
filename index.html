@@ -100,6 +100,7 @@ let ytPlayer = null, ytReady = false, ytPlayerReady = false, ytPending = null, f
 let loadToken = 0;
 let reachedEnd = false;  // キュー末尾まで再生し終えて追加待ちの状態
 let vimeoPlayer = null, videoEl = null;
+let embed = null;  // postMessage で操作するプレイヤー {kind, frame, adapter, time, paused}
 // 動画をまたいで維持する再生設定
 const prefs = { volume: 100, muted: false, rate: 1 };
 let rateTimer = null;
@@ -112,6 +113,7 @@ function setStatus(s) { $('status').textContent = s; }
 
 function thumb(v) {
   if (v.type === 'youtube') return `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`;
+  if (v.type === 'dailymotion') return `https://www.dailymotion.com/thumbnail/video/${v.id}`;
   return '';
 }
 
@@ -132,7 +134,7 @@ function renderQueue() {
 
 function clearStage() {
   clearTimeout(fallbackTimer);
-  vimeoPlayer = null; videoEl = null;
+  vimeoPlayer = null; videoEl = null; embed = null;
   const stage = $('stage');
   [...stage.children].forEach((c) => { if (c.id !== 'yt' && c.id !== 'osd' && !(ytPlayer && c === ytPlayer.getIframe())) c.remove(); });
   if (ytPlayer) { try { ytPlayer.stopVideo(); } catch {} ytPlayer.getIframe().style.display = 'none'; }
@@ -202,6 +204,22 @@ function play(i) {
     el.onerror = () => { setStatus('動画ファイルを再生できないためスキップしました'); next(); };
     $('stage').appendChild(el);
     el.play().catch((err) => { if (err.name === 'NotAllowedError') autoplayBlocked(); });
+  } else if (v.type === 'tokyomotion') {
+    // KVS 製プレイヤーは外部から操作する API がないため、iframe 表示とタイムアウトでの自動送りのみ
+    const f = document.createElement('iframe');
+    f.src = `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
+    f.allow = 'autoplay; fullscreen; picture-in-picture';
+    $('stage').appendChild(f);
+    fallbackTimer = setTimeout(next, Math.max(10, +$('timeout').value) * 1000);
+  } else if (embedAdapters[v.type]) {
+    const adapter = embedAdapters[v.type];
+    const f = document.createElement('iframe');
+    f.src = adapter.src(v.id);
+    f.allow = 'autoplay; fullscreen; picture-in-picture';
+    $('stage').appendChild(f);
+    embed = { kind: v.type, frame: f, adapter, time: 0, paused: false };
+    // プレイヤーから応答がなければ終了も検知できないので、一定時間で次へ進む
+    fallbackTimer = setTimeout(next, Math.max(10, +$('timeout').value) * 1000);
   } else {
     fallbackTimer = setTimeout(next, Math.max(10, +$('timeout').value) * 1000);
   }
@@ -265,8 +283,72 @@ $('start').onclick = async () => {
 };
 
 
-// ---- 再生制御（YouTube / Vimeo / <video> 共通） ----
-const active = () => videoEl ? 'file' : vimeoPlayer ? 'vimeo'
+// ---- postMessage で操作するプレイヤー（Dailymotion / ニコニコ動画） ----
+// parse はプレイヤーからのメッセージを {ready, ended, error, time, paused} に変換する
+const embedAdapters = {
+  dailymotion: {
+    src: (id) => `https://www.dailymotion.com/embed/video/${id}?api=postMessage&autoplay=1&origin=${encodeURIComponent(location.origin)}`,
+    send(f, command, parameters = []) { f.contentWindow.postMessage(JSON.stringify({ command, parameters }), 'https://www.dailymotion.com'); },
+    play(f) { this.send(f, 'play'); },
+    pause(f) { this.send(f, 'pause'); },
+    seek(f, sec) { this.send(f, 'seek', [sec]); },
+    setVolume(f, volume, muted) { this.send(f, 'volume', [volume]); this.send(f, 'muted', [muted]); },
+    parse(data) {
+      let m = data;
+      if (typeof data === 'string') {
+        try { m = JSON.parse(data); } catch { m = Object.fromEntries(new URLSearchParams(data)); }
+      }
+      const ev = m?.event;
+      if (!ev) return {};
+      return {
+        ready: ev === 'apiready',
+        ended: ev === 'video_end' || ev === 'end' || ev === 'ended',
+        error: ev === 'error',
+        time: ev === 'timeupdate' && m.time !== undefined ? +m.time : undefined,
+        paused: ev === 'pause' ? true : ev === 'playing' || ev === 'play' ? false : undefined,
+      };
+    },
+  },
+  niconico: {
+    src: (id) => `https://embed.nicovideo.jp/watch/${id}?jsapi=1&playerId=1`,
+    send(f, eventName, data) { f.contentWindow.postMessage({ eventName, data, sourceConnectorType: 1, playerId: '1' }, 'https://embed.nicovideo.jp'); },
+    play(f) { this.send(f, 'play'); },
+    pause(f) { this.send(f, 'pause'); },
+    seek(f, sec) { this.send(f, 'seek', { time: sec * 1000 }); },
+    setVolume(f, volume, muted) { this.send(f, 'volumeChange', { volume }); this.send(f, 'mute', { mute: muted }); },
+    parse(m) {
+      const ev = m?.eventName, d = m?.data ?? {};
+      if (!ev) return {};
+      const status = ev === 'playerStatusChange' ? d.playerStatus : undefined;
+      return {
+        ready: ev === 'loadComplete',
+        ended: status === 4,
+        error: ev === 'error',
+        time: ev === 'playerMetadataChange' && d.currentTime !== undefined ? d.currentTime / 1000 : undefined,
+        paused: status === 3 ? true : status === 2 ? false : undefined,
+      };
+    },
+  },
+};
+
+window.addEventListener('message', (e) => {
+  if (!embed || e.source !== embed.frame.contentWindow) return;
+  const { frame, adapter } = embed;
+  const r = adapter.parse(e.data);
+  if (r.ready) {
+    // 応答があったので終了を検知できる。一定時間での自動送りは取り消す
+    clearTimeout(fallbackTimer);
+    adapter.play(frame);
+    applyPrefs();
+  }
+  if (r.time !== undefined) embed.time = r.time;
+  if (r.paused !== undefined) embed.paused = r.paused;
+  if (r.error) { setStatus('この動画は埋め込み再生できないためスキップしました'); next(); }
+  else if (r.ended) next();
+});
+
+// ---- 再生制御（YouTube / Vimeo / <video> / 埋め込み 共通） ----
+const active = () => videoEl ? 'file' : vimeoPlayer ? 'vimeo' : embed ? embed.kind
   : (ytPlayerReady && ytPlayer.getIframe().style.display !== 'none') ? 'youtube' : null;
 
 async function getTime() {
@@ -275,7 +357,7 @@ async function getTime() {
     case 'vimeo': return vimeoPlayer.getCurrentTime();
     case 'youtube': return ytPlayer.getCurrentTime();
   }
-  return 0;
+  return embed ? embed.time : 0;
 }
 
 async function seekBy(sec) {
@@ -284,6 +366,7 @@ async function seekBy(sec) {
     case 'file': videoEl.currentTime = t; break;
     case 'vimeo': await vimeoPlayer.setCurrentTime(t).catch(() => {}); break;
     case 'youtube': ytPlayer.seekTo(t, true); break;
+    default: if (embed) { embed.adapter.seek(embed.frame, t); embed.time = t; }
   }
 }
 
@@ -295,10 +378,15 @@ async function togglePlay() {
       if (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING) { ytPlayer.pauseVideo(); return false; }
       ytPlayer.playVideo(); return true;
   }
+  if (embed) {
+    embed.paused = !embed.paused;
+    embed.paused ? embed.adapter.pause(embed.frame) : embed.adapter.play(embed.frame);
+    return !embed.paused;
+  }
 }
 
-// プレイヤーが対応する最大速度（YouTube/Vimeo は 2 倍まで）。超える分はシークで早送りを補う
-const nativeMaxRate = () => active() === 'file' ? 16 : 2;
+// プレイヤーが対応する最大速度（YouTube/Vimeo は 2 倍まで、埋め込みは速度変更なし）。超える分はシークで早送りを補う
+const nativeMaxRate = () => active() === 'file' ? 16 : embed ? 1 : 2;
 
 function applyPrefs() {
   const kind = active();
@@ -312,6 +400,8 @@ function applyPrefs() {
     ytPlayer.setVolume(prefs.volume);
     prefs.muted ? ytPlayer.mute() : ytPlayer.unMute();
     ytPlayer.setPlaybackRate(native);
+  } else if (embed) {
+    embed.adapter.setVolume(embed.frame, prefs.volume / 100, prefs.muted);
   }
   clearInterval(rateTimer);
   const extra = prefs.rate - native;
@@ -323,7 +413,7 @@ function applyPrefs() {
       last = now;
       const kind = active();
       const playing = kind === 'youtube' ? [YT.PlayerState.PLAYING, YT.PlayerState.BUFFERING].includes(ytPlayer.getPlayerState())
-        : kind === 'vimeo' ? !(await vimeoPlayer.getPaused()) : false;
+        : kind === 'vimeo' ? !(await vimeoPlayer.getPaused()) : embed ? !embed.paused : false;
       if (playing) seekBy(extra * dt);
     }, 500);
   }
@@ -335,6 +425,7 @@ function autoplayBlocked() {
   applyPrefs();
   if (active() === 'youtube') ytPlayer.playVideo();
   else if (active() === 'file') videoEl.play().catch(() => {});
+  else if (embed) embed.adapter.play(embed.frame);
   osd('自動再生がブロックされたためミュートで再生中（M で解除）');
   setStatus('ブラウザの自動再生制限によりミュートで再生しています。M キーで音声を戻せます');
 }

@@ -74,6 +74,9 @@ export function extractVideos(html, pageUrl) {
     if (m[1] !== 'videoseries') add({ type: 'youtube', id: m[1] });
   }
   for (const m of text.matchAll(/(?:player\.vimeo\.com\/video\/|vimeo\.com\/)(\d{6,})/g)) add({ type: 'vimeo', id: m[1] });
+  for (const m of text.matchAll(/(?:dailymotion\.com\/(?:embed\/)?video\/|geo\.dailymotion\.com\/player[^"'\s]*[?&]video=|dai\.ly\/)([a-zA-Z0-9]{5,})/g)) add({ type: 'dailymotion', id: m[1] });
+  for (const m of text.matchAll(/(?:nicovideo\.jp\/watch\/|nico\.ms\/)((?:sm|nm|so)\d+)/g)) add({ type: 'niconico', id: m[1] });
+  for (const m of text.matchAll(/tokyomotion\.net\/embed\/([0-9a-f]{16,40})/gi)) add({ type: 'tokyomotion', id: m[1].toLowerCase() });
   // <video> ごとに1本。src は拡張子なしのURLもあるため type や拡張子に頼らず拾い、複数の <source> があれば mp4 を優先する
   for (const m of text.matchAll(/<video\b([^>]*)>([\s\S]*?)<\/video>/gi)) {
     const cands = [];
