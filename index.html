@@ -54,7 +54,7 @@
 <body>
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.6</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.7</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://bazurecipe.com/">料理: リュウジのバズレシピ.com</option>
@@ -204,10 +204,10 @@ function play(i) {
     el.onerror = () => { setStatus('動画ファイルを再生できないためスキップしました'); next(); };
     $('stage').appendChild(el);
     el.play().catch((err) => { if (err.name === 'NotAllowedError') autoplayBlocked(); });
-  } else if (v.type === 'tokyomotion') {
-    // KVS 製プレイヤーは外部から操作する API がないため、iframe 表示とタイムアウトでの自動送りのみ
+  } else if (v.type === 'tokyomotion' || v.type === 'pornhub') {
+    // 操作 API のない埋め込みは iframe 表示とタイムアウトでの自動送りのみ（mp4 解決に失敗した場合のフォールバック）
     const f = document.createElement('iframe');
-    f.src = `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
+    f.src = v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}` : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
     f.allow = 'autoplay; fullscreen; picture-in-picture';
     $('stage').appendChild(f);
     fallbackTimer = setTimeout(next, Math.max(10, +$('timeout').value) * 1000);

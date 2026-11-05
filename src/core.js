@@ -77,6 +77,7 @@ export function extractVideos(html, pageUrl) {
   for (const m of text.matchAll(/(?:dailymotion\.com\/(?:embed\/)?video\/|geo\.dailymotion\.com\/player[^"'\s]*[?&]video=|dai\.ly\/)([a-zA-Z0-9]{5,})/g)) add({ type: 'dailymotion', id: m[1] });
   for (const m of text.matchAll(/(?:nicovideo\.jp\/watch\/|nico\.ms\/)((?:sm|nm|so)\d+)/g)) add({ type: 'niconico', id: m[1] });
   for (const m of text.matchAll(/tokyomotion\.net\/embed\/([0-9a-f]{16,40})/gi)) add({ type: 'tokyomotion', id: m[1].toLowerCase() });
+  for (const m of text.matchAll(/pornhub(?:premium)?\.com\/(?:embed\/|view_video\.php\?[^"'\s]*viewkey=)([a-z0-9]{10,16})/gi)) add({ type: 'pornhub', id: m[1].toLowerCase() });
   // <video> ごとに1本。src は拡張子なしのURLもあるため type や拡張子に頼らず拾い、複数の <source> があれば mp4 を優先する
   for (const m of text.matchAll(/<video\b([^>]*)>([\s\S]*?)<\/video>/gi)) {
     const cands = [];
@@ -126,10 +127,10 @@ function checkUrl(u, allowedHosts) {
 /**
  * /api/* のリクエストを処理する。API 以外のパスなら null を返す。
  * @param {URL} u リクエストURL
- * @param {{ fetchHtml?: (url: string) => Promise<string>, allowedHosts?: string[] }} opts
- * @returns {Promise<{ status: number, body: object } | null>}
+ * @param {{ fetchHtml?: (url: string) => Promise<string>, allowedHosts?: string[], headers?: { get?: (k: string) => string | null, range?: string } }} opts
+ * @returns {Promise<{ status: number, body: object, headers?: object, stream?: boolean } | null>}
  */
-export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts } = {}) {
+export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, headers } = {}) {
   try {
     if (u.pathname === '/api/list') {
       let url = checkUrl(u.searchParams.get('url'), allowedHosts);
@@ -155,14 +156,41 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts } 
       // TokyoMotion の埋め込みは外部から操作できないが、embed ページに mp4 直リンクが書かれている。
       // 取れたら file に置き換えてシーク・速度・終了検知を効かせる
       await Promise.all(videos.map(async (v) => {
-        if (v.type !== 'tokyomotion') return;
-        try {
-          const embedUrl = `https://www.tokyomotion.net/embed/${v.id}`;
-          const f = extractVideos(await get(embedUrl), embedUrl).find((x) => x.type === 'file');
-          if (f) Object.assign(v, f);
-        } catch { /* 取れなければ埋め込みのまま */ }
+        if (v.type === 'tokyomotion') {
+          try {
+            const embedUrl = `https://www.tokyomotion.net/embed/${v.id}`;
+            const f = extractVideos(await get(embedUrl), embedUrl).find((x) => x.type === 'file');
+            if (f) Object.assign(v, f);
+          } catch { /* 取れなければ埋め込みのまま */ }
+        } else if (v.type === 'pornhub') {
+          // phncdn の mp4 URL は発行元 IP に紐付くため、ブラウザから直接は再生できない。
+          // Worker/サーバー経由で embed→get_media→mp4 を一連のリクエスト内で解決して中継する
+          Object.assign(v, { type: 'file', id: `${u.origin}/api/proxy?p=${v.id}` });
+        }
       }));
       return { status: 200, body: { title: pageTitle(html), videos } };
+    }
+    if (u.pathname === '/api/proxy') {
+      const id = u.searchParams.get('p') || '';
+      if (!/^[a-z0-9]{10,16}$/i.test(id)) throw new Error('bad proxy id');
+      const embedUrl = `https://www.pornhub.com/embed/${id}`;
+      const eh = await get(embedUrl);
+      const gm = eh.match(/"videoUrl":"((?:[^"\\]|\\.)*get_media(?:[^"\\]|\\.)*)"/);
+      if (!gm) throw new Error('get_media URL not found');
+      const list = JSON.parse(await get(JSON.parse(`"${gm[1]}"`)));
+      const mp4 = (Array.isArray(list) ? list : [list]).find((x) => x.format === 'mp4')?.videoUrl;
+      if (!mp4) throw new Error('mp4 URL not found');
+      const range = headers?.get?.('range') || headers?.range;
+      const up = await fetch(mp4, {
+        redirect: 'follow',
+        headers: { 'User-Agent': UA, Referer: embedUrl, ...(range ? { Range: range } : {}) },
+      });
+      const outHeaders = {};
+      for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+        const val = up.headers.get(k);
+        if (val) outHeaders[k] = val;
+      }
+      return { status: up.status, headers: outHeaders, body: up.body, stream: true };
     }
     return null;
   } catch (e) {
