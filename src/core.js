@@ -151,7 +151,18 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts } 
     if (u.pathname === '/api/videos') {
       const url = checkUrl(u.searchParams.get('url'), allowedHosts);
       const html = await get(url);
-      return { status: 200, body: { title: pageTitle(html), videos: extractVideos(html, url) } };
+      const videos = extractVideos(html, url);
+      // TokyoMotion の埋め込みは外部から操作できないが、embed ページに mp4 直リンクが書かれている。
+      // 取れたら file に置き換えてシーク・速度・終了検知を効かせる
+      await Promise.all(videos.map(async (v) => {
+        if (v.type !== 'tokyomotion') return;
+        try {
+          const embedUrl = `https://www.tokyomotion.net/embed/${v.id}`;
+          const f = extractVideos(await get(embedUrl), embedUrl).find((x) => x.type === 'file');
+          if (f) Object.assign(v, f);
+        } catch { /* 取れなければ埋め込みのまま */ }
+      }));
+      return { status: 200, body: { title: pageTitle(html), videos } };
     }
     return null;
   } catch (e) {
