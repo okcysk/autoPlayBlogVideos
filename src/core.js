@@ -127,10 +127,10 @@ function checkUrl(u, allowedHosts) {
 /**
  * /api/* のリクエストを処理する。API 以外のパスなら null を返す。
  * @param {URL} u リクエストURL
- * @param {{ fetchHtml?: (url: string) => Promise<string>, allowedHosts?: string[] }} opts
- * @returns {Promise<{ status: number, body: object } | null>}
+ * @param {{ fetchHtml?: (url: string) => Promise<string>, allowedHosts?: string[], headers?: { get?: (k: string) => string | null, range?: string } }} opts
+ * @returns {Promise<{ status: number, body: object, headers?: object, stream?: boolean } | null>}
  */
-export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts } = {}) {
+export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, headers } = {}) {
   try {
     if (u.pathname === '/api/list') {
       let url = checkUrl(u.searchParams.get('url'), allowedHosts);
@@ -164,7 +164,33 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts } 
           } catch { /* 取れなければ埋め込みのまま */ }
         }
       }));
+      // TokyoMotion の mp4 は Referer が tokyomotion.net でないと 403 になるためプロキシ経由にする
+      for (const v of videos) {
+        if (v.type === 'file' && /(^|\.)tokyomotion\.net\/vsrc\//i.test(v.id)) {
+          v.id = `${u.origin}/api/proxy?u=${encodeURIComponent(v.id)}`;
+        }
+      }
       return { status: 200, body: { title: pageTitle(html), videos } };
+    }
+    if (u.pathname === '/api/proxy') {
+      // TokyoMotion の /vsrc/ は Referer 必須の mp4 へリダイレクトする。Referer を付けて中継する
+      const target = u.searchParams.get('u') || '';
+      const t = new URL(target);
+      if (t.protocol !== 'https:' || !/(^|\.)tokyomotion\.net$/.test(t.hostname)) throw new Error('bad proxy url');
+      const fwd = { 'User-Agent': UA, Referer: 'https://www.tokyomotion.net/' };
+      // /vsrc/ は 301 で署名付き mp4 URL に飛ばす。最終 URL を取ってから Range 付きで取り直す
+      const first = await fetch(target, { redirect: 'manual', headers: fwd });
+      const loc = first.headers.get('location');
+      const finalUrl = first.status >= 300 && first.status < 400 && loc ? new URL(loc, target).href : target;
+      await first.body?.cancel?.();
+      const range = headers?.get?.('range') || headers?.range;
+      const up = await fetch(finalUrl, { redirect: 'follow', headers: { ...fwd, ...(range ? { Range: range } : {}) } });
+      const outHeaders = {};
+      for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+        const val = up.headers.get(k);
+        if (val) outHeaders[k] = val;
+      }
+      return { status: up.status, headers: outHeaders, body: up.body, stream: true };
     }
     return null;
   } catch (e) {

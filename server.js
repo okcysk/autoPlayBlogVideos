@@ -3,6 +3,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { handleApi, fetchHtml } from './src/core.js';
 
@@ -19,8 +20,12 @@ async function cachedFetchHtml(url) {
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
-  const api = await handleApi(u, { fetchHtml: cachedFetchHtml, allowedHosts });
+  const api = await handleApi(u, { fetchHtml: cachedFetchHtml, allowedHosts, headers: req.headers });
   if (api) {
+    if (api.stream) {
+      res.writeHead(api.status, api.headers);
+      return Readable.fromWeb(api.body).pipe(res);
+    }
     res.writeHead(api.status, { 'Content-Type': 'application/json; charset=utf-8' });
     return res.end(JSON.stringify(api.body));
   }
