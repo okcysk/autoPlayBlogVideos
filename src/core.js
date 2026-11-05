@@ -97,6 +97,14 @@ export function extractVideos(html, pageUrl) {
     const u = absolutize(og[1], pageUrl);
     if (u && /\.(mp4|webm|ogv|mov)(\?|$)/i.test(u)) add({ type: 'file', id: u });
   }
+  // TokyoMotion は記事内の <video> が /vsrc/.../<embedと同じハッシュ> の mp4 を指す。
+  // 取れていればシーク・終了検知が効く file を優先し、操作不能な埋め込み側は捨てる
+  const fileIds = out.filter((v) => v.type === 'file').map((v) => v.id);
+  if (fileIds.length) {
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i].type === 'tokyomotion' && fileIds.some((u) => u.includes('/' + out[i].id))) out.splice(i, 1);
+    }
+  }
   return out;
 }
 
