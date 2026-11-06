@@ -107,6 +107,35 @@ function extractVideoLinks(html, pageUrl) {
   return out;
 }
 
+// JS の単一引用符文字列リテラルのエスケープを戻す（eval は使わない）
+function unescapeJs(s) {
+  return s.replace(/\\(.)/gs, (m, c) => (c === 'n' ? '\n' : c === 't' ? '\t' : c === 'r' ? '\r' : c));
+}
+
+// Dean Edwards packer で難読化されたスクリプトを復号する
+function unpackPacked(html) {
+  const m = html.match(/\}\('((?:[^'\\]|\\.)*)',(\d+),(\d+),'((?:[^'\\]|\\.)*)'\.split\('\|'\)/);
+  if (!m) return null;
+  const a = +m[2], c = +m[3];
+  const p = unescapeJs(m[1]);
+  const k = unescapeJs(m[4]).split('|');
+  const e = (n) => (n < a ? '' : e(Math.floor(n / a))) + ((n % a) > 35 ? String.fromCharCode((n % a) + 29) : (n % a).toString(36));
+  let out = p;
+  for (let i = c - 1; i >= 0; i--) if (k[i]) out = out.replace(new RegExp('\\b' + e(i) + '\\b', 'g'), k[i]);
+  return out;
+}
+
+// javynow のプレイヤーページから HLS(m3u8) の URL を取り出す。
+// URL は署名付き（key=/end=）で期限があるため、再生直前に毎回取り直す必要がある
+function javynowHlsUrl(html) {
+  const re = /https:\/\/media\d+\.javynow\.com\/[^"'\s]+/;
+  const direct = html.match(re);
+  if (direct) return direct[0];
+  const dec = unpackPacked(html);
+  const m = dec && dec.match(re);
+  return m ? m[0] : null;
+}
+
 // 記事HTMLから動画を抽出
 export function extractVideos(html, pageUrl) {
   const out = [];
@@ -244,6 +273,19 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
             const f = extractVideos(await get(embedUrl), embedUrl).find((x) => x.type === 'file');
             if (f) Object.assign(v, f);
           } catch { /* 取れなければ埋め込みのまま */ }
+        }
+        // Javynow は操作 API のない iframe しかなかったが、プレイヤーが参照する
+        // 署名付き HLS URL を取り出せば hls.js で全操作可能になる
+        if (v.type === 'javynow') {
+          try {
+            const r = await fetch(`https://javynow.com/player/${v.id}/`, {
+              headers: { 'User-Agent': UA, Referer: 'https://www.nukistream.com/' },
+            });
+            if (r.ok) {
+              const hls = javynowHlsUrl(await r.text());
+              if (hls) Object.assign(v, { type: 'hls', id: hls });
+            }
+          } catch { /* 取れなければ iframe のまま */ }
         }
       }));
       // twihub の /r/v/<id> は mp4 へ 302 する。ブラウザの <video> にリダイレクトを

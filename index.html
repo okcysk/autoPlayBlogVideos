@@ -71,7 +71,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.27</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.28</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
@@ -111,6 +111,7 @@
 
 <script src="https://www.youtube.com/iframe_api"></script>
 <script src="https://player.vimeo.com/api/player.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 // GitHub Pages など API を持たない場所で開いたときに呼ぶ Cloudflare Worker の URL（例: https://auto-play-blog-videos.xxx.workers.dev）
@@ -167,7 +168,7 @@ function makeSlot() {
   $('grid').appendChild(el);
   return { el, stage, video: null, qi: -1, lastQi: -1, kind: null,
     prefs: { volume: prefs.volume, muted: prefs.muted, rate: 1 },
-    yt: null, ytReady: false, ytPending: null, vimeo: null, videoEl: null,
+    yt: null, ytReady: false, ytPending: null, vimeo: null, videoEl: null, hls: null,
     embed: null, fallbackTimer: null, rateTimer: null };
 }
 
@@ -226,8 +227,9 @@ function clearSlotMedia(s) {
   s.fallbackTimer = s.rateTimer = null;
   try { s.yt && s.yt.destroy(); } catch {}
   try { s.vimeo && (s.vimeo.destroy ? s.vimeo.destroy() : s.vimeo.unload()); } catch {}
+  try { s.hls && s.hls.destroy(); } catch {}
   s.stage.innerHTML = '';
-  s.yt = s.vimeo = s.videoEl = s.embed = null;
+  s.yt = s.vimeo = s.videoEl = s.embed = s.hls = null;
   s.ytReady = false; s.ytPending = null;
 }
 
@@ -272,6 +274,7 @@ function slotLoad(s, qi) {
   if (v.type === 'youtube') slotPlayYoutube(s, v);
   else if (v.type === 'vimeo') slotPlayVimeo(s, v);
   else if (v.type === 'file') slotPlayFile(s, v);
+  else if (v.type === 'hls') slotPlayHls(s, v);
   else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow') slotPlayFrame(s, v);
   else if (embedAdapters[v.type]) slotPlayEmbed(s, v);
   else s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
@@ -327,6 +330,36 @@ function slotPlayFile(s, v) {
   el.onerror = () => { setStatus('動画ファイルを再生できないためスキップしました'); slotDone(s); };
   s.stage.appendChild(el);
   el.play().catch((err) => { if (err.name === 'NotAllowedError') slotAutoplayBlocked(s); });
+}
+
+function slotPlayHls(s, v) {
+  // HLS(m3u8) を hls.js で自前再生する。署名付きURLなので取得は /api/videos 時点のものを使う
+  const el = s.videoEl = document.createElement('video');
+  el.onloadedmetadata = () => applySlotPrefs(s);
+  el.referrerPolicy = 'no-referrer';
+  el.controls = true; el.autoplay = true; el.playsInline = true;
+  el.onended = () => slotDone(s);
+  el.onerror = () => { setStatus('動画ファイルを再生できないためスキップしました'); slotDone(s); };
+  s.stage.appendChild(el);
+  if (window.Hls && Hls.isSupported()) {
+    const hls = s.hls = new Hls();
+    hls.loadSource(v.id);
+    hls.attachMedia(el);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      applySlotPrefs(s);
+      el.play().catch((err) => { if (err.name === 'NotAllowedError') slotAutoplayBlocked(s); });
+    });
+    hls.on(Hls.Events.ERROR, (e, d) => {
+      if (d.fatal) { setStatus(`HLS 再生エラー: ${d.details}`); slotDone(s); }
+    });
+  } else if (el.canPlayType('application/vnd.apple.mpegurl')) {
+    // Safari 等のネイティブ HLS 対応ブラウザ
+    el.src = v.id;
+    el.play().catch((err) => { if (err.name === 'NotAllowedError') slotAutoplayBlocked(s); });
+  } else {
+    setStatus('このブラウザは HLS 再生に対応していません');
+    slotDone(s);
+  }
 }
 
 function slotPlayFrame(s, v) {
@@ -528,7 +561,7 @@ window.addEventListener('message', (e) => {
 
 // ---- 再生制御（スロット単位） ----
 async function getSlotTime(s) {
-  if (s.kind === 'file' && s.videoEl) return s.videoEl.currentTime;
+  if (s.videoEl) return s.videoEl.currentTime;
   if (s.kind === 'vimeo' && s.vimeo) return s.vimeo.getCurrentTime();
   if (s.kind === 'youtube' && s.yt) return s.yt.getCurrentTime();
   return s.embed ? s.embed.time : 0;
@@ -537,14 +570,14 @@ async function getSlotTime(s) {
 async function seekSlotBy(s, sec) {
   if (s.qi < 0) return;
   const t = Math.max(0, (await getSlotTime(s)) + sec);
-  if (s.kind === 'file' && s.videoEl) s.videoEl.currentTime = t;
+  if (s.videoEl) s.videoEl.currentTime = t;
   else if (s.kind === 'vimeo' && s.vimeo) await s.vimeo.setCurrentTime(t).catch(() => {});
   else if (s.kind === 'youtube' && s.yt) s.yt.seekTo(t, true);
   else if (s.embed) { s.embed.adapter.seek(s.embed.frame, t); s.embed.time = t; }
 }
 
 async function toggleSlot(s) {
-  if (s.kind === 'file' && s.videoEl) { if (s.videoEl.paused) { s.videoEl.play(); return true; } s.videoEl.pause(); return false; }
+  if (s.videoEl) { if (s.videoEl.paused) { s.videoEl.play(); return true; } s.videoEl.pause(); return false; }
   if (s.kind === 'vimeo' && s.vimeo) { if (await s.vimeo.getPaused()) { s.vimeo.play(); return true; } s.vimeo.pause(); return false; }
   if (s.kind === 'youtube' && s.yt) {
     if (s.yt.getPlayerState() === YT.PlayerState.PLAYING) { s.yt.pauseVideo(); return false; }
@@ -559,12 +592,12 @@ async function toggleSlot(s) {
 }
 
 // プレイヤーが対応する最大速度（YouTube/Vimeo は 2 倍まで、埋め込みは速度変更なし）。超える分はシークで早送りを補う
-const nativeMaxRate = (s) => s.kind === 'file' ? 16 : s.embed ? 1 : 2;
+const nativeMaxRate = (s) => s.videoEl ? 16 : s.embed ? 1 : 2;
 
 function applySlotPrefs(s) {
   if (s.qi < 0) return;
   const native = Math.min(s.prefs.rate, nativeMaxRate(s));
-  if (s.kind === 'file' && s.videoEl) {
+  if (s.videoEl) {
     s.videoEl.volume = s.prefs.volume / 100; s.videoEl.muted = s.prefs.muted; s.videoEl.playbackRate = native;
   } else if (s.kind === 'vimeo' && s.vimeo) {
     s.vimeo.setVolume(s.prefs.muted ? 0 : s.prefs.volume / 100).catch(() => {});
@@ -598,7 +631,7 @@ function slotAutoplayBlocked(s) {
   s.prefs.muted = true; prefs.muted = true;
   applySlotPrefs(s);
   if (s.kind === 'youtube' && s.yt) s.yt.playVideo();
-  else if (s.kind === 'file' && s.videoEl) s.videoEl.play().catch(() => {});
+  else if (s.videoEl) s.videoEl.play().catch(() => {});
   else if (s.embed) s.embed.adapter.play(s.embed.frame);
   osd('自動再生がブロックされたためミュートで再生中（M で解除）');
   setStatus('ブラウザの自動再生制限によりミュートで再生しています。M キーで音声を戻せます');
