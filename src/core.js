@@ -221,6 +221,19 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
           } catch { /* 取れなければ埋め込みのまま */ }
         }
       }));
+      // twihub の /r/v/<id> は mp4 へ 302 する。ブラウザの <video> にリダイレクトを
+      // 追わせると Referer 次第で video.twimg.com に 403 られることがあるため、
+      // ここで最終 URL を解決して直接返す
+      await Promise.all(videos.map(async (v) => {
+        if (v.type === 'file' && /(^|\.|\/)twihub\.link\/r\/v\/\d+/.test(v.id)) {
+          try {
+            const r = await fetch(v.id, { redirect: 'manual', headers: { 'User-Agent': UA } });
+            const loc = r.headers.get('location');
+            await r.body?.cancel?.();
+            if (r.status >= 300 && r.status < 400 && loc) v.id = new URL(loc, v.id).href;
+          } catch { /* 解決失敗時は /r/v のまま */ }
+        }
+      }));
       // Referer 必須の mp4 はプロキシ経由にする（ブラウザからは正しい Referer を送れないため）
       for (const v of videos) {
         if (v.type === 'file' && proxyReferer(v.id)) {
