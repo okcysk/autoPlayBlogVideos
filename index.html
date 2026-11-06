@@ -27,6 +27,10 @@
   .cellStage { position:absolute; inset:0; }
   .cellStage > * { position:absolute; inset:0; width:100%; height:100%; border:0; }
   .cellStage video { object-fit:contain; }
+  /* 操作 API のないフォールバック iframe はクリックを透過させてキー入力を奪わせない。
+     セルをクリックすると .interactive が付き、一時的に iframe を操作できる */
+  .cellStage iframe.np { pointer-events:none; }
+  .cell.interactive .cellStage iframe.np { pointer-events:auto; }
   #info { flex:none; }
   #now { margin:8px 0 4px; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #now a { color:var(--accent); font-weight:normal; font-size:12px; margin-left:8px; }
@@ -65,7 +69,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.25</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.26</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
@@ -151,6 +155,13 @@ function makeSlot() {
   const stage = document.createElement('div');
   stage.className = 'cellStage';
   el.appendChild(stage);
+  // フォールバック iframe は普段クリックを透過するが、セルをクリックすると
+  // 8秒間だけ iframe 内を操作できる（自動再生がブロックされた時の再生ボタン用）
+  el.addEventListener('pointerdown', () => {
+    el.classList.add('interactive');
+    clearTimeout(el._ipTimer);
+    el._ipTimer = setTimeout(() => el.classList.remove('interactive'), 8000);
+  });
   $('grid').appendChild(el);
   return { el, stage, video: null, qi: -1, lastQi: -1, kind: null,
     prefs: { volume: prefs.volume, muted: prefs.muted, rate: 1 },
@@ -319,6 +330,7 @@ function slotPlayFile(s, v) {
 function slotPlayFrame(s, v) {
   // 操作 API のない埋め込みは iframe 表示とタイムアウトでの自動送りのみ（mp4 解決に失敗した場合のフォールバック）
   const f = document.createElement('iframe');
+  f.className = 'np';
   f.src = v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
     : v.type === 'javynow' ? `https://javynow.com/player/${v.id}/`
     : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
@@ -667,7 +679,7 @@ window.addEventListener('blur', () => setTimeout(() => {
 setInterval(() => {
   const ae = document.activeElement;
   if (ae && ae.tagName === 'IFRAME' && ae.closest('#grid')) ae.blur();
-}, 300);
+}, 100);
 
 $('next').onclick = () => skipSlot(focusSlot());
 $('prev').onclick = () => prevSlot(focusSlot());
