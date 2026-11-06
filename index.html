@@ -19,10 +19,14 @@
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
   main { flex:1; min-height:0; display:grid; grid-template-columns: minmax(0,1fr) 340px; gap:12px; padding:12px 16px; }
   section { display:flex; flex-direction:column; min-height:0; min-width:0; }
-  /* 残りの高さと幅の両方に収まる最大の 16:9 にする */
-  #stageWrap { flex:1; min-height:0; container-type:size; display:flex; align-items:center; justify-content:center; }
-  #stage { position:relative; width:min(100cqw, 100cqh * 16 / 9); aspect-ratio:16/9; background:#000; border-radius:8px; overflow:hidden; }
-  #stage > * { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  #stageWrap { flex:1; min-height:0; position:relative; }
+  /* 同時再生スロットのグリッド。--cols で列数を指定 */
+  #grid { display:grid; gap:6px; width:100%; height:100%; grid-template-columns:repeat(var(--cols,1),minmax(0,1fr)); grid-auto-rows:minmax(0,1fr); }
+  .cell { position:relative; min-width:0; min-height:0; background:#000; border-radius:8px; overflow:hidden; }
+  .cell.focus { outline:2px solid var(--accent); outline-offset:-2px; }
+  .cellStage { position:absolute; inset:0; }
+  .cellStage > * { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  .cellStage video { object-fit:contain; }
   #info { flex:none; }
   #now { margin:8px 0 4px; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #now a { color:var(--accent); font-weight:normal; font-size:12px; margin-left:8px; }
@@ -31,8 +35,9 @@
   aside { min-height:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:auto; }
   @media (max-width: 900px) {
     main { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); padding:8px; gap:8px; }
-    #stageWrap { flex:none; container-type:normal; }
-    #stage { width:100%; }
+    #stageWrap { flex:none; }
+    #grid { height:auto; grid-auto-rows:auto; }
+    .cell { aspect-ratio:16/9; }
     #keys, header h1 { display:none; }
     header { padding:8px; gap:6px; }
   }
@@ -44,14 +49,14 @@
   li img { width:96px; height:54px; object-fit:cover; border-radius:4px; flex:none; background:#000; }
   li .t { font-size:12px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
   li .k { color:var(--muted); font-size:11px; }
-  /* Shinobi 広告が body 全体を包むラッパーを挿すので、レイアウトから除外して flex を維持する */
-  [data-admax-sticky-wrapper], [data-admax-sticky-wrapper] > div:first-child { display:contents !important; }
-  /* 広告スクリプトが body を書き換えても高さが崩れないよう、アプリ全体を1つのコンテナにまとめる */
-  #app { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; height:100dvh; }
   #osd { position:absolute; inset:auto auto 16px 16px; width:auto; height:auto; padding:6px 12px; background:rgba(0,0,0,.75); color:#fff; border-radius:6px; font-size:15px; pointer-events:none; opacity:0; transition:opacity .3s; z-index:2; }
   #osd.show { opacity:1; }
   #keys { color:var(--muted); font-size:12px; margin-top:4px; }
   #keys kbd { background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 5px; font:inherit; }
+  /* Shinobi 広告が body 全体を包むラッパーを挿すので、レイアウトから除外して flex を維持する */
+  [data-admax-sticky-wrapper], [data-admax-sticky-wrapper] > div:first-child { display:contents !important; }
+  /* 広告スクリプトが body を書き換えても高さが崩れないよう、アプリ全体を1つのコンテナにまとめる */
+  #app { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; height:100dvh; }
 </style>
 <meta name="google-site-verification" content="LyRfDuRUYksJZFUhuVmuxtJTpkZJOUPSd-Jtx4OINSE" />
 <script async src="https://adm.shinobi.jp/st/auto.js" data-admax-id="e9f2b72c45a21d3ae2ed4d9b1797bf35"></script>
@@ -60,7 +65,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.23</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.24</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
@@ -78,7 +83,7 @@
 </header>
 <main>
   <section>
-    <div id="stageWrap"><div id="stage"><div id="yt"></div><div id="osd"></div></div></div>
+    <div id="stageWrap"><div id="grid"></div><div id="osd"></div></div>
     <div id="info">
     <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
     <div class="controls">
@@ -87,7 +92,7 @@
       <label><input type="checkbox" id="shuffle"> シャッフル</label>
       <label>埋め込み不明動画の自動送り <input id="timeout" type="number" min="10" value="180" style="width:72px">秒</label>
     </div>
-    <div id="keys"><kbd>B</kbd>/<kbd>N</kbd> 前後の動画 · <kbd>Z</kbd>/<kbd>X</kbd> 5秒 · <kbd>C</kbd>/<kbd>V</kbd> 30秒 · <kbd>↑</kbd>/<kbd>↓</kbd> 音量±10% · <kbd>M</kbd> ミュート · <kbd>F</kbd> 等速 · <kbd>G</kbd> 2.5倍⇄等速 · <kbd>H</kbd> 10倍⇄等速 · <kbd>Space</kbd> 再生/停止</div>
+    <div id="keys"><kbd>1</kbd>-<kbd>9</kbd> 同時再生数 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> フォーカス移動 · <kbd>Shift</kbd>+各キーで全画面に適用 · <kbd>B</kbd>/<kbd>N</kbd> 前後の動画 · <kbd>Z</kbd>/<kbd>X</kbd> 5秒 · <kbd>C</kbd>/<kbd>V</kbd> 30秒 · <kbd>↑</kbd>/<kbd>↓</kbd> 音量±10% · <kbd>M</kbd> ミュート · <kbd>F</kbd> 等速 · <kbd>G</kbd> 2.5倍⇄等速 · <kbd>H</kbd> 10倍⇄等速 · <kbd>Space</kbd> 再生/停止</div>
     <div id="status"></div>
     </div>
   </section>
@@ -107,17 +112,15 @@ const WORKER_URL = 'https://auto-play-blog-videos.spankbangquadplayer.workers.de
 const API_BASE = location.hostname.endsWith('github.io') ? WORKER_URL.replace(/\/$/, '') : '';
 const queue = [];          // {type, id, title, article}
 const seenVideos = new Set();
-let current = -1;
-let ytPlayer = null, ytReady = false, ytPlayerReady = false, ytPending = null, fallbackTimer = null;
 let loadToken = 0;
-let reachedEnd = false;  // キュー末尾まで再生し終えて追加待ちの状態
-let vimeoPlayer = null, videoEl = null;
-let embed = null;  // postMessage で操作するプレイヤー {kind, frame, adapter, time, paused}
-// 動画をまたいで維持する再生設定
+let reachedEnd = false;
+let loadFinished = false;
+// 再生設定の初期値。各スロットは生成時にこれを引き継ぐ
 const prefs = { volume: 100, muted: false, rate: 1 };
-let rateTimer = null;
+let osdTimer = null;
+let ytApiReady = false;
 
-window.onYouTubeIframeAPIReady = () => { ytReady = true; };
+window.onYouTubeIframeAPIReady = () => { ytApiReady = true; };
 
 $('preset').onchange = (e) => {
   const o = e.target.selectedOptions[0];
@@ -133,114 +136,254 @@ function thumb(v) {
   return '';
 }
 
+// ---- 同時再生スロット ----
+// キューを上から順に各スロットへ割り当て、終わったスロットから次を再生する
+const slots = [];
+let multiCount = 1, focusIdx = 0;
+const fedSet = new Set();      // このセッションで割当済みのキューindex
+const playingIdx = new Set();  // 現在スロットが再生中のキューindex
+const colsFor = (n) => Math.ceil(Math.sqrt(n));
+const focusSlot = () => slots[focusIdx] || slots[0];
+
+function makeSlot() {
+  const el = document.createElement('div');
+  el.className = 'cell';
+  const stage = document.createElement('div');
+  stage.className = 'cellStage';
+  el.appendChild(stage);
+  $('grid').appendChild(el);
+  return { el, stage, video: null, qi: -1, lastQi: -1, kind: null,
+    prefs: { volume: prefs.volume, muted: prefs.muted, rate: 1 },
+    yt: null, ytReady: false, ytPending: null, vimeo: null, videoEl: null,
+    embed: null, fallbackTimer: null, rateTimer: null };
+}
+
+function layoutGrid() {
+  $('grid').style.setProperty('--cols', String(colsFor(slots.length)));
+}
+
+function setMultiCount(n) {
+  n = Math.max(1, Math.min(9, Math.floor(n) || 1));
+  if (n === multiCount && slots.length) return;
+  multiCount = n;
+  $('grid').innerHTML = '';
+  slots.length = 0;
+  for (let i = 0; i < n; i++) slots.push(makeSlot());
+  layoutGrid();
+  focusIdx = 0;
+  resetFeed();
+  updateFocus();
+}
+
+function updateFocus() {
+  slots.forEach((s, i) => s.el.classList.toggle('focus', i === focusIdx));
+  updateNow();
+}
+
+function moveFocus(d) {
+  const i = Math.max(0, Math.min(slots.length - 1, focusIdx + d));
+  if (i !== focusIdx) { focusIdx = i; updateFocus(); }
+}
+
+function updateNow() {
+  const v = focusSlot()?.video;
+  $('now').innerHTML = '';
+  if (!v) {
+    $('now').textContent = queue.length ? '（再生待機）' : '一覧URLを入力して「読み込んで再生」を押してください';
+    return;
+  }
+  if (v) {
+    const a = document.createElement('a');
+    a.href = v.article; a.target = '_blank'; a.rel = 'noopener'; a.textContent = '記事を開く ↗';
+    $('now').append(a);
+  }
+}
+
+function resetFeed() {
+  fedSet.clear(); playingIdx.clear();
+  for (const s of slots) { s.qi = -1; s.lastQi = -1; s.video = null; s.kind = null; clearSlotMedia(s); }
+  reachedEnd = false;
+  renderQueue();
+  updateNow();
+}
+
+function clearSlotMedia(s) {
+  clearTimeout(s.fallbackTimer);
+  clearInterval(s.rateTimer);
+  s.fallbackTimer = s.rateTimer = null;
+  try { s.yt && s.yt.destroy(); } catch {}
+  try { s.vimeo && (s.vimeo.destroy ? s.vimeo.destroy() : s.vimeo.unload()); } catch {}
+  s.stage.innerHTML = '';
+  s.yt = s.vimeo = s.videoEl = s.embed = null;
+  s.ytReady = false; s.ytPending = null;
+}
+
+// 未再生のキューindexを1つ返す（シャッフル時はランダム）
+function pickNext() {
+  if (!queue.length) return -1;
+  if ($('shuffle').checked) {
+    const avail = [];
+    for (let i = 0; i < queue.length; i++) if (!fedSet.has(i)) avail.push(i);
+    return avail.length ? avail[Math.floor(Math.random() * avail.length)] : -1;
+  }
+  for (let i = 0; i < queue.length; i++) if (!fedSet.has(i)) return i;
+  return -1;
+}
+
+function checkEnd() {
+  if (slots.length && slots.every((s) => s.qi < 0) && pickNext() < 0 && loadFinished) {
+    reachedEnd = true;
+    setStatus('キューの最後まで再生しました');
+  }
+}
+
+// 空いているスロットに次の動画を割り当てる
+function pump() {
+  for (const s of slots) {
+    if (s.qi >= 0) continue;
+    const qi = pickNext();
+    if (qi < 0) continue;
+    slotLoad(s, qi);
+  }
+  checkEnd();
+  updateNow();
+}
+
+function slotLoad(s, qi) {
+  const v = queue[qi];
+  if (!v) return;
+  fedSet.add(qi); playingIdx.add(qi);
+  s.qi = qi; s.lastQi = qi; s.video = v;
+  clearSlotMedia(s);
+  s.kind = v.type;
+  if (v.type === 'youtube') slotPlayYoutube(s, v);
+  else if (v.type === 'vimeo') slotPlayVimeo(s, v);
+  else if (v.type === 'file') slotPlayFile(s, v);
+  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow') slotPlayFrame(s, v);
+  else if (embedAdapters[v.type]) slotPlayEmbed(s, v);
+  else s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
+  renderQueue();
+  updateNow();
+}
+
+function slotPlayYoutube(s, v) {
+  if (!ytApiReady) {
+    s.fallbackTimer = setTimeout(() => { if (s.video === v && s.qi >= 0) slotPlayYoutube(s, v); }, 500);
+    return;
+  }
+  const holder = document.createElement('div');
+  s.stage.appendChild(holder);
+  s.ytReady = false; s.ytPending = v.id;
+  s.yt = new YT.Player(holder, {
+    videoId: v.id,
+    playerVars: { autoplay: 1, rel: 0, playsinline: 1 },
+    events: {
+      onReady: (e) => {
+        s.ytReady = true;
+        const pid = s.ytPending; s.ytPending = null;
+        if (pid && pid !== v.id) e.target.loadVideoById(pid); else e.target.playVideo();
+        applySlotPrefs(s);
+      },
+      onStateChange: (e) => {
+        if (e.data === YT.PlayerState.ENDED) slotDone(s);
+        else if (e.data === YT.PlayerState.PLAYING) applySlotPrefs(s);
+      },
+      onError: () => { setStatus('この動画は埋め込み再生できないためスキップしました'); slotDone(s); },
+      onAutoplayBlocked: () => slotAutoplayBlocked(s),
+    },
+  });
+}
+
+function slotPlayVimeo(s, v) {
+  const f = document.createElement('iframe');
+  f.src = `https://player.vimeo.com/video/${v.id}?autoplay=1`;
+  f.allow = 'autoplay; fullscreen; picture-in-picture';
+  s.stage.appendChild(f);
+  const p = s.vimeo = new Vimeo.Player(f);
+  p.on('ended', () => slotDone(s));
+  p.on('error', () => slotDone(s));
+  p.ready().then(() => applySlotPrefs(s));
+}
+
+function slotPlayFile(s, v) {
+  const el = s.videoEl = document.createElement('video');
+  el.onloadedmetadata = () => applySlotPrefs(s);
+  el.referrerPolicy = 'no-referrer';
+  el.src = v.id; el.controls = true; el.autoplay = true; el.playsInline = true;
+  el.onended = () => slotDone(s);
+  el.onerror = () => { setStatus('動画ファイルを再生できないためスキップしました'); slotDone(s); };
+  s.stage.appendChild(el);
+  el.play().catch((err) => { if (err.name === 'NotAllowedError') slotAutoplayBlocked(s); });
+}
+
+function slotPlayFrame(s, v) {
+  // 操作 API のない埋め込みは iframe 表示とタイムアウトでの自動送りのみ（mp4 解決に失敗した場合のフォールバック）
+  const f = document.createElement('iframe');
+  f.src = v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
+    : v.type === 'javynow' ? `https://javynow.com/player/${v.id}/`
+    : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
+  f.allow = 'autoplay; fullscreen; picture-in-picture';
+  s.stage.appendChild(f);
+  s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
+}
+
+function slotPlayEmbed(s, v) {
+  const adapter = embedAdapters[v.type];
+  const f = document.createElement('iframe');
+  f.src = adapter.src(v.id);
+  f.allow = 'autoplay; fullscreen; picture-in-picture';
+  s.stage.appendChild(f);
+  s.embed = { kind: v.type, frame: f, adapter, time: 0, paused: false };
+  // プレイヤーから応答がなければ終了も検知できないので、一定時間で次へ進む
+  s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
+}
+
+function slotDone(s) {
+  if (s.qi >= 0) { playingIdx.delete(s.qi); s.lastQi = s.qi; s.qi = -1; s.video = null; }
+  clearSlotMedia(s);
+  renderQueue();
+  pump();
+}
+
+// キューの任意indexをそのスロットで再生する（リストクリック・B/N 用）
+function slotPlayIndex(s, qi) {
+  const v = queue[qi];
+  if (!v) return;
+  // そのindexより後を未割当に戻し、連続再生の続きとして扱えるようにする
+  for (const i of [...fedSet]) if (i > qi && !playingIdx.has(i)) fedSet.delete(i);
+  if (s.qi >= 0) playingIdx.delete(s.qi);
+  slotLoad(s, qi);
+}
+
+function skipSlot(s) {
+  if (s.qi >= 0) slotDone(s); else pump();
+}
+
+function prevSlot(s) {
+  const cur = s.qi >= 0 ? s.qi : s.lastQi;
+  const t = cur > 0 ? cur - 1 : 0;
+  if (queue[t]) slotPlayIndex(s, t);
+}
+
+function restartSlot(s) {
+  const qi = s.qi >= 0 ? s.qi : s.lastQi;
+  if (qi >= 0 && queue[qi]) slotLoad(s, qi);
+}
+
 function renderQueue() {
   $('qhead').textContent = `再生キュー (${queue.length})`;
   const ol = $('queue');
   ol.innerHTML = '';
   queue.forEach((v, i) => {
     const li = document.createElement('li');
-    if (i === current) li.className = 'active';
+    if (playingIdx.has(i)) li.className = 'active';
     li.innerHTML = `${thumb(v) ? `<img loading="lazy" src="${thumb(v)}" alt="">` : ''}<div><div class="t"></div><div class="k">${v.type}</div></div>`;
     li.querySelector('.t').textContent = v.title || v.article;
-    li.onclick = () => play(i);
+    li.onclick = () => slotPlayIndex(focusSlot(), i);
     ol.appendChild(li);
   });
-  ol.children[current]?.scrollIntoView({ block: 'nearest' });
-}
-
-function clearStage() {
-  clearTimeout(fallbackTimer);
-  vimeoPlayer = null; videoEl = null; embed = null;
-  const stage = $('stage');
-  [...stage.children].forEach((c) => { if (c.id !== 'yt' && c.id !== 'osd' && !(ytPlayer && c === ytPlayer.getIframe())) c.remove(); });
-  if (ytPlayer) { try { ytPlayer.stopVideo(); } catch {} ytPlayer.getIframe().style.display = 'none'; }
-}
-
-function next() {
-  if (!queue.length) return;
-  if ($('shuffle').checked) return play(Math.floor(Math.random() * queue.length));
-  if (current + 1 < queue.length) play(current + 1);
-  else { reachedEnd = true; setStatus('キューの最後まで再生しました（読み込み中なら追加され次第続きます）'); }
-}
-
-function play(i) {
-  current = i;
-  reachedEnd = false;
-  const v = queue[i];
-  clearStage();
-  $('now').innerHTML = '';
-  $('now').append(document.createTextNode(v.title || v.article));
-  const a = document.createElement('a');
-  a.href = v.article; a.target = '_blank'; a.rel = 'noopener'; a.textContent = '記事を開く ↗';
-  $('now').append(a);
-  renderQueue();
-
-  if (v.type === 'youtube') {
-    if (!ytReady) { setTimeout(() => play(i), 500); return; }
-    if (!ytPlayer) {
-      ytPlayer = new YT.Player('yt', {
-        videoId: v.id,
-        playerVars: { autoplay: 1, rel: 0, playsinline: 1 },
-        events: {
-          onReady: (e) => {
-            ytPlayerReady = true;
-            // 準備中に別の動画が選ばれていたらそちらを読み込む
-            if (ytPending && ytPending !== v.id) e.target.loadVideoById(ytPending);
-            else e.target.playVideo();
-            applyPrefs();
-          },
-          onStateChange: (e) => {
-            if (e.data === YT.PlayerState.ENDED) next();
-            else if (e.data === YT.PlayerState.PLAYING) applyPrefs();
-          },
-          onError: () => { setStatus('この動画は埋め込み再生できないためスキップしました'); next(); },
-          onAutoplayBlocked: () => autoplayBlocked(),
-        },
-      });
-    } else {
-      ytPlayer.getIframe().style.display = '';
-      if (ytPlayerReady) ytPlayer.loadVideoById(v.id);
-    }
-    ytPending = v.id;
-  } else if (v.type === 'vimeo') {
-    const f = document.createElement('iframe');
-    f.src = `https://player.vimeo.com/video/${v.id}?autoplay=1`;
-    f.allow = 'autoplay; fullscreen; picture-in-picture';
-    $('stage').appendChild(f);
-    const p = vimeoPlayer = new Vimeo.Player(f);
-    p.on('ended', next);
-    p.on('error', next);
-    p.ready().then(applyPrefs);
-  } else if (v.type === 'file') {
-    const el = videoEl = document.createElement('video');
-    el.onloadedmetadata = applyPrefs;
-    el.referrerPolicy = 'no-referrer';
-    el.src = v.id; el.controls = true; el.autoplay = true; el.playsInline = true;
-    el.onended = next;
-    el.onerror = () => { setStatus('動画ファイルを再生できないためスキップしました'); next(); };
-    $('stage').appendChild(el);
-    el.play().catch((err) => { if (err.name === 'NotAllowedError') autoplayBlocked(); });
-  } else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow') {
-    // 操作 API のない埋め込みは iframe 表示とタイムアウトでの自動送りのみ（mp4 解決に失敗した場合のフォールバック）
-    const f = document.createElement('iframe');
-    f.src = v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
-      : v.type === 'javynow' ? `https://javynow.com/player/${v.id}/`
-      : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
-    f.allow = 'autoplay; fullscreen; picture-in-picture';
-    $('stage').appendChild(f);
-    fallbackTimer = setTimeout(next, Math.max(10, +$('timeout').value) * 1000);
-  } else if (embedAdapters[v.type]) {
-    const adapter = embedAdapters[v.type];
-    const f = document.createElement('iframe');
-    f.src = adapter.src(v.id);
-    f.allow = 'autoplay; fullscreen; picture-in-picture';
-    $('stage').appendChild(f);
-    embed = { kind: v.type, frame: f, adapter, time: 0, paused: false };
-    // プレイヤーから応答がなければ終了も検知できないので、一定時間で次へ進む
-    fallbackTimer = setTimeout(next, Math.max(10, +$('timeout').value) * 1000);
-  } else {
-    fallbackTimer = setTimeout(next, Math.max(10, +$('timeout').value) * 1000);
-  }
+  const qi = focusSlot()?.qi;
+  if (qi >= 0) ol.children[qi]?.scrollIntoView({ block: 'nearest' });
 }
 
 async function api(path, params) {
@@ -261,8 +404,8 @@ $('start').onclick = async () => {
   const url = $('url').value.trim();
   if (!url) return;
   const token = ++loadToken;
-  queue.length = 0; seenVideos.clear(); current = -1; reachedEnd = false;
-  clearStage(); renderQueue();
+  queue.length = 0; seenVideos.clear();
+  resetFeed();
   try {
     setStatus('記事一覧を取得中…');
     const params = { url, pages: $('pages').value };
@@ -283,8 +426,7 @@ $('start').onclick = async () => {
             if (seenVideos.has(key)) continue;
             seenVideos.add(key);
             queue.push({ ...v, thumb: v.thumb || l.thumb, title: title || l.title, article: l.url });
-            if (current === -1) play(0);
-            else if (reachedEnd) play(queue.length - 1);
+            pump();
           }
         } catch (e) { console.warn(l.url, e); }
         if (token !== loadToken) return;
@@ -294,7 +436,11 @@ $('start').onclick = async () => {
       }
     };
     await Promise.all([worker(), worker(), worker()]);
-    if (token === loadToken) setStatus(`抽出完了: ${links.length} 記事から ${queue.length} 本の動画`);
+    if (token === loadToken) {
+      loadFinished = true;
+      pump();
+      setStatus(`抽出完了: ${links.length} 記事から ${queue.length} 本の動画`);
+    }
   } catch (e) {
     setStatus('エラー: ' + e.message);
   }
@@ -350,105 +496,100 @@ const embedAdapters = {
 };
 
 window.addEventListener('message', (e) => {
-  if (!embed || e.source !== embed.frame.contentWindow) return;
-  const { frame, adapter } = embed;
+  const s = slots.find((x) => x.embed && e.source === x.embed.frame.contentWindow);
+  if (!s) return;
+  const { frame, adapter } = s.embed;
   const r = adapter.parse(e.data);
   if (r.ready) {
     // 応答があったので終了を検知できる。一定時間での自動送りは取り消す
-    clearTimeout(fallbackTimer);
+    clearTimeout(s.fallbackTimer);
     adapter.play(frame);
-    applyPrefs();
+    applySlotPrefs(s);
   }
-  if (r.time !== undefined) embed.time = r.time;
-  if (r.paused !== undefined) embed.paused = r.paused;
-  if (r.error) { setStatus('この動画は埋め込み再生できないためスキップしました'); next(); }
-  else if (r.ended) next();
+  if (r.time !== undefined) s.embed.time = r.time;
+  if (r.paused !== undefined) s.embed.paused = r.paused;
+  if (r.error) { setStatus('この動画は埋め込み再生できないためスキップしました'); slotDone(s); }
+  else if (r.ended) slotDone(s);
 });
 
-// ---- 再生制御（YouTube / Vimeo / <video> / 埋め込み 共通） ----
-const active = () => videoEl ? 'file' : vimeoPlayer ? 'vimeo' : embed ? embed.kind
-  : (ytPlayerReady && ytPlayer.getIframe().style.display !== 'none') ? 'youtube' : null;
-
-async function getTime() {
-  switch (active()) {
-    case 'file': return videoEl.currentTime;
-    case 'vimeo': return vimeoPlayer.getCurrentTime();
-    case 'youtube': return ytPlayer.getCurrentTime();
-  }
-  return embed ? embed.time : 0;
+// ---- 再生制御（スロット単位） ----
+async function getSlotTime(s) {
+  if (s.kind === 'file' && s.videoEl) return s.videoEl.currentTime;
+  if (s.kind === 'vimeo' && s.vimeo) return s.vimeo.getCurrentTime();
+  if (s.kind === 'youtube' && s.yt) return s.yt.getCurrentTime();
+  return s.embed ? s.embed.time : 0;
 }
 
-async function seekBy(sec) {
-  const t = Math.max(0, (await getTime()) + sec);
-  switch (active()) {
-    case 'file': videoEl.currentTime = t; break;
-    case 'vimeo': await vimeoPlayer.setCurrentTime(t).catch(() => {}); break;
-    case 'youtube': ytPlayer.seekTo(t, true); break;
-    default: if (embed) { embed.adapter.seek(embed.frame, t); embed.time = t; }
-  }
+async function seekSlotBy(s, sec) {
+  if (s.qi < 0) return;
+  const t = Math.max(0, (await getSlotTime(s)) + sec);
+  if (s.kind === 'file' && s.videoEl) s.videoEl.currentTime = t;
+  else if (s.kind === 'vimeo' && s.vimeo) await s.vimeo.setCurrentTime(t).catch(() => {});
+  else if (s.kind === 'youtube' && s.yt) s.yt.seekTo(t, true);
+  else if (s.embed) { s.embed.adapter.seek(s.embed.frame, t); s.embed.time = t; }
 }
 
-async function togglePlay() {
-  switch (active()) {
-    case 'file': if (videoEl.paused) { videoEl.play(); return true; } videoEl.pause(); return false;
-    case 'vimeo': if (await vimeoPlayer.getPaused()) { vimeoPlayer.play(); return true; } vimeoPlayer.pause(); return false;
-    case 'youtube':
-      if (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING) { ytPlayer.pauseVideo(); return false; }
-      ytPlayer.playVideo(); return true;
+async function toggleSlot(s) {
+  if (s.kind === 'file' && s.videoEl) { if (s.videoEl.paused) { s.videoEl.play(); return true; } s.videoEl.pause(); return false; }
+  if (s.kind === 'vimeo' && s.vimeo) { if (await s.vimeo.getPaused()) { s.vimeo.play(); return true; } s.vimeo.pause(); return false; }
+  if (s.kind === 'youtube' && s.yt) {
+    if (s.yt.getPlayerState() === YT.PlayerState.PLAYING) { s.yt.pauseVideo(); return false; }
+    s.yt.playVideo(); return true;
   }
-  if (embed) {
-    embed.paused = !embed.paused;
-    embed.paused ? embed.adapter.pause(embed.frame) : embed.adapter.play(embed.frame);
-    return !embed.paused;
+  if (s.embed) {
+    s.embed.paused = !s.embed.paused;
+    s.embed.paused ? s.embed.adapter.pause(s.embed.frame) : s.embed.adapter.play(s.embed.frame);
+    return !s.embed.paused;
   }
+  return false;
 }
 
 // プレイヤーが対応する最大速度（YouTube/Vimeo は 2 倍まで、埋め込みは速度変更なし）。超える分はシークで早送りを補う
-const nativeMaxRate = () => active() === 'file' ? 16 : embed ? 1 : 2;
+const nativeMaxRate = (s) => s.kind === 'file' ? 16 : s.embed ? 1 : 2;
 
-function applyPrefs() {
-  const kind = active();
-  const native = Math.min(prefs.rate, nativeMaxRate());
-  if (kind === 'file') {
-    videoEl.volume = prefs.volume / 100; videoEl.muted = prefs.muted; videoEl.playbackRate = native;
-  } else if (kind === 'vimeo') {
-    vimeoPlayer.setVolume(prefs.muted ? 0 : prefs.volume / 100).catch(() => {});
-    vimeoPlayer.setPlaybackRate(native).catch(() => {});
-  } else if (kind === 'youtube') {
-    ytPlayer.setVolume(prefs.volume);
-    prefs.muted ? ytPlayer.mute() : ytPlayer.unMute();
-    ytPlayer.setPlaybackRate(native);
-  } else if (embed) {
-    embed.adapter.setVolume(embed.frame, prefs.volume / 100, prefs.muted);
+function applySlotPrefs(s) {
+  if (s.qi < 0) return;
+  const native = Math.min(s.prefs.rate, nativeMaxRate(s));
+  if (s.kind === 'file' && s.videoEl) {
+    s.videoEl.volume = s.prefs.volume / 100; s.videoEl.muted = s.prefs.muted; s.videoEl.playbackRate = native;
+  } else if (s.kind === 'vimeo' && s.vimeo) {
+    s.vimeo.setVolume(s.prefs.muted ? 0 : s.prefs.volume / 100).catch(() => {});
+    s.vimeo.setPlaybackRate(native).catch(() => {});
+  } else if (s.kind === 'youtube' && s.yt) {
+    s.yt.setVolume(s.prefs.volume);
+    s.prefs.muted ? s.yt.mute() : s.yt.unMute();
+    s.yt.setPlaybackRate(native);
+  } else if (s.embed) {
+    s.embed.adapter.setVolume(s.embed.frame, s.prefs.volume / 100, s.prefs.muted);
   }
-  clearInterval(rateTimer);
-  const extra = prefs.rate - native;
+  clearInterval(s.rateTimer); s.rateTimer = null;
+  const extra = s.prefs.rate - native;
   if (extra > 0) {
     // シーク後のバッファリング中も実時間ぶん進め、目標速度に近づける
     let last = performance.now();
-    rateTimer = setInterval(async () => {
+    s.rateTimer = setInterval(async () => {
       const now = performance.now(), dt = (now - last) / 1000;
       last = now;
-      const kind = active();
-      const playing = kind === 'youtube' ? [YT.PlayerState.PLAYING, YT.PlayerState.BUFFERING].includes(ytPlayer.getPlayerState())
-        : kind === 'vimeo' ? !(await vimeoPlayer.getPaused()) : embed ? !embed.paused : false;
-      if (playing) seekBy(extra * dt);
+      if (s.qi < 0) return;
+      const playing = s.kind === 'youtube' ? s.yt && [YT.PlayerState.PLAYING, YT.PlayerState.BUFFERING].includes(s.yt.getPlayerState())
+        : s.kind === 'vimeo' ? s.vimeo && !(await s.vimeo.getPaused())
+        : s.embed ? !s.embed.paused : false;
+      if (playing) seekSlotBy(s, extra * dt);
     }, 500);
   }
 }
 
 // ブラウザが音声付きの自動再生を止めたときは、ミュートなら許可されるのでミュートで再生し直す
-function autoplayBlocked() {
-  prefs.muted = true;
-  applyPrefs();
-  if (active() === 'youtube') ytPlayer.playVideo();
-  else if (active() === 'file') videoEl.play().catch(() => {});
-  else if (embed) embed.adapter.play(embed.frame);
+function slotAutoplayBlocked(s) {
+  s.prefs.muted = true; prefs.muted = true;
+  applySlotPrefs(s);
+  if (s.kind === 'youtube' && s.yt) s.yt.playVideo();
+  else if (s.kind === 'file' && s.videoEl) s.videoEl.play().catch(() => {});
+  else if (s.embed) s.embed.adapter.play(s.embed.frame);
   osd('自動再生がブロックされたためミュートで再生中（M で解除）');
   setStatus('ブラウザの自動再生制限によりミュートで再生しています。M キーで音声を戻せます');
 }
 
-let osdTimer = null;
 function osd(text) {
   const el = $('osd');
   el.textContent = text;
@@ -457,43 +598,64 @@ function osd(text) {
   osdTimer = setTimeout(() => el.classList.remove('show'), 1200);
 }
 
-function setRate(r) {
-  prefs.rate = r;
-  applyPrefs();
-  osd(r === 1 ? '等速' : `${r}倍速` + (r > nativeMaxRate() ? '（シークで補完）' : ''));
+function setSlotVolume(s, v) {
+  s.prefs.volume = Math.max(0, Math.min(100, v));
+  s.prefs.muted = false;
+  prefs.volume = s.prefs.volume; prefs.muted = false;
+  applySlotPrefs(s);
+  osd(`音量 ${s.prefs.volume}%`);
 }
 
-function setVolume(v) {
-  prefs.volume = Math.max(0, Math.min(100, v));
-  prefs.muted = false;
-  applyPrefs();
-  osd(`音量 ${prefs.volume}%`);
+function setSlotRate(s, r) {
+  s.prefs.rate = r;
+  prefs.rate = r;
+  applySlotPrefs(s);
+  osd(r === 1 ? '等速' : `${r}倍速` + (r > nativeMaxRate(s) ? '（シークで補完）' : ''));
 }
+
+const eachSlot = (all, fn) => { (all && slots.length ? slots : [focusSlot()]).forEach((s) => s && fn(s)); };
 
 const keyActions = {
-  b: () => { if (current > 0) play(current - 1); },
-  n: () => next(),
-  z: () => { seekBy(-5); osd('⏪ 5秒'); },
-  x: () => { seekBy(5); osd('5秒 ⏩'); },
-  c: () => { seekBy(-30); osd('⏪ 30秒'); },
-  v: () => { seekBy(30); osd('30秒 ⏩'); },
-  ArrowUp: () => setVolume(prefs.volume + 10),
-  ArrowDown: () => setVolume(prefs.volume - 10),
-  m: () => { prefs.muted = !prefs.muted; applyPrefs(); osd(prefs.muted ? 'ミュート' : `音量 ${prefs.volume}%`); },
-  f: () => setRate(1),
+  // WASD はフォーカス移動（Shift 併用でも移動）
+  w: () => moveFocus(-colsFor(slots.length)),
+  s: () => moveFocus(colsFor(slots.length)),
+  a: () => moveFocus(-1),
+  d: () => moveFocus(1),
+  b: (all) => { if (all) slots.forEach(restartSlot); else prevSlot(focusSlot()); },
+  n: (all) => { if (all) slots.forEach(skipSlot); else skipSlot(focusSlot()); },
+  z: (all) => eachSlot(all, (s) => { seekSlotBy(s, -5); osd('⏪ 5秒'); }),
+  x: (all) => eachSlot(all, (s) => { seekSlotBy(s, 5); osd('5秒 ⏩'); }),
+  c: (all) => eachSlot(all, (s) => { seekSlotBy(s, -30); osd('⏪ 30秒'); }),
+  v: (all) => eachSlot(all, (s) => { seekSlotBy(s, 30); osd('30秒 ⏩'); }),
+  ArrowUp: (all) => eachSlot(all, (s) => setSlotVolume(s, s.prefs.volume + 10)),
+  ArrowDown: (all) => eachSlot(all, (s) => setSlotVolume(s, s.prefs.volume - 10)),
+  m: (all) => eachSlot(all, (s) => {
+    s.prefs.muted = !s.prefs.muted; prefs.muted = s.prefs.muted;
+    applySlotPrefs(s); osd(s.prefs.muted ? 'ミュート' : `音量 ${s.prefs.volume}%`);
+  }),
+  f: (all) => eachSlot(all, (s) => setSlotRate(s, 1)),
   // G / H はもう一度押すと等速に戻る
-  g: () => setRate(prefs.rate === 2.5 ? 1 : 2.5),
-  h: () => setRate(prefs.rate === 10 ? 1 : 10),
-  ' ': async () => osd((await togglePlay()) ? '▶ 再生' : '⏸ 停止'),
+  g: (all) => eachSlot(all, (s) => setSlotRate(s, s.prefs.rate === 2.5 ? 1 : 2.5)),
+  h: (all) => eachSlot(all, (s) => setSlotRate(s, s.prefs.rate === 10 ? 1 : 10)),
+  ' ': (all) => eachSlot(all, async (s) => {
+    const p = await toggleSlot(s);
+    if (s === focusSlot()) osd(p ? '▶ 再生' : '⏸ 停止');
+  }),
 };
 
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.target.closest('input, select, textarea')) return;
+  // 数字キーで同時再生数を指定（1=シングル、2-9=同時再生）
+  if (/^[1-9]$/.test(e.key) && !e.shiftKey) {
+    e.preventDefault();
+    setMultiCount(+e.key);
+    return;
+  }
   const fn = keyActions[e.key.length === 1 ? e.key.toLowerCase() : e.key];
   if (!fn) return;
   e.preventDefault();
-  fn();
+  fn(e.shiftKey);
 });
 
 // 動画内をクリックすると iframe にフォーカスが移りキーが届かなくなるため、親ページへ戻す
@@ -501,8 +663,10 @@ window.addEventListener('blur', () => setTimeout(() => {
   if (document.activeElement?.tagName === 'IFRAME') document.activeElement.blur();
 }, 0));
 
-$('next').onclick = next;
-$('prev').onclick = () => { if (current > 0) play(current - 1); };
+$('next').onclick = () => skipSlot(focusSlot());
+$('prev').onclick = () => prevSlot(focusSlot());
+
+setMultiCount(1);
 
 // ?url=<記事一覧URL>&pages=3&filter=... で開いたら、その一覧をすぐ読み込んで再生する
 {
