@@ -54,7 +54,7 @@
 <body>
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.16</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.17</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
@@ -63,6 +63,7 @@
     <option value="https://roshutu-shuuti.net/">露出羞恥に魅せられて</option>
     <option value="https://www.twi-dl.net/rank.php" data-filter="v\.php\?video=">twi-dl ランキング</option>
     <option value="https://www.nukistream.com/category.php?id=41" data-filter="video\.php\?id=">ヌキストリーム</option>
+    <option value="https://twihub.link/posts" data-filter="posts/[0-9a-f]{8}-">twihub</option>
   </select>
   <input id="url" type="url" placeholder="記事一覧ページのURL">
   <label>ページ数 <input id="pages" type="number" min="1" max="50" value="3" style="width:64px"></label>

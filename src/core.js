@@ -129,6 +129,12 @@ export function extractVideos(html, pageUrl) {
   }
   // Twitter(X) の動画MP4（twi-dl 等の保存サイトに直リンクで載る）
   for (const m of text.matchAll(/https:\/\/video\.twimg\.com\/amplify_video\/[^"'\s]+?\.mp4/g)) add({ type: 'file', id: m[0] });
+  // twihub は /r/v/<tweet_id> が mp4 へリダイレクトする（投稿ページ内のダウンロードリンク）
+  try {
+    if (/(^|\.)twihub\.link$/i.test(new URL(pageUrl).hostname)) {
+      for (const m of text.matchAll(/href="\/r\/v\/(\d+)"/g)) add({ type: 'file', id: `https://twihub.link/r/v/${m[1]}` });
+    }
+  } catch { /* ignore */ }
   // Youjizz は JSON 内に //host/videos/...h264.mp4 の直リンク（\/ エスケープ済み・複数画質）がある。最高画質を拾う
   const yjUrls = [...text.replace(/\\\//g, '/').matchAll(/\/\/[a-z0-9.-]*youjizz\.com\/videos\/[^"'\s]+?h264\.mp4[^"'\s]*/g)].map((m) => 'https:' + m[0]);
   if (yjUrls.length) add({ type: 'file', id: yjUrls[yjUrls.length - 1] });
