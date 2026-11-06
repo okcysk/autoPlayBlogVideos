@@ -75,6 +75,26 @@ function proxyReferer(url) {
   } catch { return null; }
 }
 
+// 記事から外部動画サイトへのリンクを拾う（埋め込みを持たずリンクだけ貼るまとめブログ用）
+const VIDEO_LINK_HOSTS = [
+  /(^|\.)tokyomotion\.net$/i, /(^|\.)pornhub\.com$/i, /(^|\.)pornhubpremium\.com$/i,
+  /(^|\.)youtube\.com$/i, /(^|\.)youtu\.be$/i, /(^|\.)dailymotion\.com$/i, /(^|\.)dai\.ly$/i,
+  /(^|\.)vimeo\.com$/i, /(^|\.)nicovideo\.jp$/i, /(^|\.)nico\.ms$/i,
+  /(^|\.)xvideos\.com$/i, /(^|\.)xhamster\.com$/i, /(^|\.)fc2\.com$/i, /(^|\.)youjizz\.com$/i,
+];
+function extractVideoLinks(html, pageUrl) {
+  const out = [];
+  const seen = new Set();
+  for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)) {
+    const u = absolutize(m[1], pageUrl);
+    if (!u || seen.has(u)) continue;
+    try {
+      if (VIDEO_LINK_HOSTS.some((re) => re.test(new URL(u).hostname))) { seen.add(u); out.push(u); }
+    } catch { /* ignore */ }
+  }
+  return out;
+}
+
 // 記事HTMLから動画を抽出
 export function extractVideos(html, pageUrl) {
   const out = [];
@@ -105,6 +125,9 @@ export function extractVideos(html, pageUrl) {
     const u = best && absolutize(best.src, pageUrl);
     if (u) add({ type: 'file', id: u });
   }
+  // Youjizz は JSON 内に //host/videos/...h264.mp4 の直リンク（\/ エスケープ済み・複数画質）がある。最高画質を拾う
+  const yjUrls = [...text.replace(/\\\//g, '/').matchAll(/\/\/[a-z0-9.-]*youjizz\.com\/videos\/[^"'\s]+?h264\.mp4[^"'\s]*/g)].map((m) => 'https:' + m[0]);
+  if (yjUrls.length) add({ type: 'file', id: yjUrls[yjUrls.length - 1] });
   const og = text.match(/<meta\b[^>]*property=["']og:video(?::url|:secure_url)?["'][^>]*content=["']([^"']+)["']/i);
   if (og) {
     const u = absolutize(og[1], pageUrl);
@@ -164,7 +187,19 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
     if (u.pathname === '/api/videos') {
       const url = checkUrl(u.searchParams.get('url'), allowedHosts);
       const html = await get(url);
-      const videos = extractVideos(html, url);
+      let videos = extractVideos(html, url);
+      // 記事内に埋め込みがなく外部動画サイトへのリンクだけの場合、リンク先ページから抽出する
+      if (!videos.length) {
+        const keys = new Set();
+        for (const l of extractVideoLinks(html, url).slice(0, 3)) {
+          try {
+            for (const v of extractVideos(await get(l), l)) {
+              const k = v.type + ':' + v.id;
+              if (!keys.has(k)) { keys.add(k); videos.push(v); }
+            }
+          } catch { /* リンク先が取れなくても他を試す */ }
+        }
+      }
       // TokyoMotion の埋め込みは外部から操作できないが、embed ページに mp4 直リンクが書かれている。
       // 取れたら file に置き換えてシーク・速度・終了検知を効かせる
       await Promise.all(videos.map(async (v) => {
