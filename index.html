@@ -65,7 +65,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.24</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.25</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
@@ -662,6 +662,12 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('blur', () => setTimeout(() => {
   if (document.activeElement?.tagName === 'IFRAME') document.activeElement.blur();
 }, 0));
+// iframe クリックでは window の blur が発火しないブラウザがあるため、フォーカスが iframe に
+// 残っている場合は定期的に親へ戻す（クリック自体は iframe に届くので再生ボタン等は押せる）
+setInterval(() => {
+  const ae = document.activeElement;
+  if (ae && ae.tagName === 'IFRAME' && ae.closest('#grid')) ae.blur();
+}, 300);
 
 $('next').onclick = () => skipSlot(focusSlot());
 $('prev').onclick = () => prevSlot(focusSlot());
