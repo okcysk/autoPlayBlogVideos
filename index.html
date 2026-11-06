@@ -45,7 +45,9 @@
   li .t { font-size:12px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
   li .k { color:var(--muted); font-size:11px; }
   /* Shinobi 広告が body 全体を包むラッパーを挿すので、レイアウトから除外して flex を維持する */
-  [data-admax-sticky-wrapper] { display:contents !important; }
+  [data-admax-sticky-wrapper], [data-admax-sticky-wrapper] > div:first-child { display:contents !important; }
+  /* 広告スクリプトが body を書き換えても高さが崩れないよう、アプリ全体を1つのコンテナにまとめる */
+  #app { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; height:100dvh; }
   #osd { position:absolute; inset:auto auto 16px 16px; width:auto; height:auto; padding:6px 12px; background:rgba(0,0,0,.75); color:#fff; border-radius:6px; font-size:15px; pointer-events:none; opacity:0; transition:opacity .3s; z-index:2; }
   #osd.show { opacity:1; }
   #keys { color:var(--muted); font-size:12px; margin-top:4px; }
@@ -55,9 +57,10 @@
 <script async src="https://adm.shinobi.jp/st/auto.js" data-admax-id="e9f2b72c45a21d3ae2ed4d9b1797bf35"></script>
 </head>
 <body>
+<div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.22</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.23</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
@@ -93,6 +96,7 @@
     <ol id="queue"></ol>
   </aside>
 </main>
+</div>
 
 <script src="https://www.youtube.com/iframe_api"></script>
 <script src="https://player.vimeo.com/api/player.js"></script>
