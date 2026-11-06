@@ -37,7 +37,10 @@ export function extractList(html, baseUrl, filter) {
     if (filter ? !filter.test(url) : EXCLUDE.test(url)) continue;
     seen.add(url);
     const title = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    links.push({ url, title });
+    // リンク内にサムネイル画像があれば拾う（twihub 等、一覧に画像付きで並ぶサイト用）
+    const img = m[2].match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i);
+    const thumb = img && /^https?:/i.test(absolutize(img[1], baseUrl) || '') ? absolutize(img[1], baseUrl) : null;
+    links.push(thumb ? { url, title, thumb } : { url, title });
   }
   if (!filter) {
     // 記事っぽいURL（日付・数字・articles 等）が多数あれば、それだけに絞る
@@ -68,11 +71,20 @@ const PROXY_REFERERS = [
   [/^(.+\.)?tokyomotion\.net$/i, 'https://www.tokyomotion.net/'],
   [/^(.+\.)?po-kaki-to\.com$/i, 'https://www.po-kaki-to.com/'],
 ];
+// Referer を付けると 403 になる等、プロキシ経由にしたいが Referer は不要な配信元
+const PROXY_PLAIN = /(^|\.)(twimg\.com|twihub\.link)$/i;
 function proxyReferer(url) {
   try {
     const host = new URL(url).hostname;
     return PROXY_REFERERS.find(([re]) => re.test(host))?.[1] || null;
   } catch { return null; }
+}
+function proxyTarget(url) {
+  try {
+    const host = new URL(url).hostname;
+    if (proxyReferer(url) !== null || PROXY_PLAIN.test(host)) return true;
+    return false;
+  } catch { return false; }
 }
 
 // 記事から外部動画サイトへのリンクを拾う（埋め込みを持たずリンクだけ貼るまとめブログ用）
@@ -159,6 +171,19 @@ function pageTitle(html) {
   return m ? decodeEntities(m[1]).trim() : '';
 }
 
+// og:image / twitter:image から記事のサムネイルを取る
+function pageThumb(html, pageUrl) {
+  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = m[0];
+    if (!/(?:property|name)=["'](?:og:image(?::secure_url)?|twitter:image(?::src)?)['"]/i.test(tag)) continue;
+    const c = tag.match(/\bcontent=["']([^"']+)["']/i);
+    if (!c) continue;
+    const u = absolutize(c[1], pageUrl);
+    if (u && /^https?:/i.test(u)) return u;
+  }
+  return null;
+}
+
 // allowedHosts を渡すと、そのホスト（とサブドメイン）以外の取得を拒否する
 function checkUrl(u, allowedHosts) {
   const parsed = new URL(u);
@@ -236,18 +261,20 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
       }));
       // Referer 必須の mp4 はプロキシ経由にする（ブラウザからは正しい Referer を送れないため）
       for (const v of videos) {
-        if (v.type === 'file' && proxyReferer(v.id)) {
+        if (v.type === 'file' && proxyTarget(v.id)) {
           v.id = `${u.origin}/api/proxy?u=${encodeURIComponent(v.id)}`;
         }
       }
+      const thumb = pageThumb(html, url);
+      if (thumb) for (const v of videos) v.thumb = v.thumb || thumb;
       return { status: 200, body: { title: pageTitle(html), videos } };
     }
     if (u.pathname === '/api/proxy') {
       // Referer 必須サイトの動画を中継する。リダイレクトがあれば最終 URL を取ってから Range 付きで取り直す
       const target = u.searchParams.get('u') || '';
       const referer = proxyReferer(target);
-      if (!referer) throw new Error('bad proxy url');
-      const fwd = { 'User-Agent': UA, Referer: referer };
+      if (!referer && !PROXY_PLAIN.test(new URL(target).hostname)) throw new Error('bad proxy url');
+      const fwd = { 'User-Agent': UA, ...(referer ? { Referer: referer } : {}) };
       // /vsrc/ は 301 で署名付き mp4 URL に飛ばす。最終 URL を取ってから Range 付きで取り直す
       const first = await fetch(target, { redirect: 'manual', headers: fwd });
       const loc = first.headers.get('location');

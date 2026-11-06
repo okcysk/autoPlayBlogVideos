@@ -54,7 +54,7 @@
 <body>
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.18</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.19</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
@@ -120,6 +120,7 @@ $('preset').onchange = (e) => {
 function setStatus(s) { $('status').textContent = s; }
 
 function thumb(v) {
+  if (v.thumb) return v.thumb;
   if (v.type === 'youtube') return `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`;
   if (v.type === 'dailymotion') return `https://www.dailymotion.com/thumbnail/video/${v.id}`;
   return '';
@@ -274,7 +275,7 @@ $('start').onclick = async () => {
             const key = v.type + ':' + v.id;
             if (seenVideos.has(key)) continue;
             seenVideos.add(key);
-            queue.push({ ...v, title: title || l.title, article: l.url });
+            queue.push({ ...v, thumb: v.thumb || l.thumb, title: title || l.title, article: l.url });
             if (current === -1) play(0);
             else if (reachedEnd) play(queue.length - 1);
           }
