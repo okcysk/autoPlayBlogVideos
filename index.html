@@ -44,6 +44,8 @@
   li img { width:96px; height:54px; object-fit:cover; border-radius:4px; flex:none; background:#000; }
   li .t { font-size:12px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
   li .k { color:var(--muted); font-size:11px; }
+  /* Shinobi 広告が body 全体を包むラッパーを挿すので、レイアウトから除外して flex を維持する */
+  [data-admax-sticky-wrapper] { display:contents !important; }
   #osd { position:absolute; inset:auto auto 16px 16px; width:auto; height:auto; padding:6px 12px; background:rgba(0,0,0,.75); color:#fff; border-radius:6px; font-size:15px; pointer-events:none; opacity:0; transition:opacity .3s; z-index:2; }
   #osd.show { opacity:1; }
   #keys { color:var(--muted); font-size:12px; margin-top:4px; }
@@ -55,7 +57,7 @@
 <body>
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.21</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.22</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
