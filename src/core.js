@@ -23,6 +23,24 @@ function absolutize(href, base) {
 
 const EXCLUDE = /\/(category|tag|tags|page|feed|author|wp-content|wp-json|wp-admin|wp-login|search|comments|login|privacy|contact|about)(\/|$)|[?&](s|replytocom|share)=|\.(jpe?g|png|gif|webp|svg|css|js|xml|pdf|zip)$/i;
 
+// ページネーション判定用: ?p=2, ?page=2, /page/2/ 等のページ番号を除いたURLキー
+const PAGE_PARAM = /^(p|page|pg|paged)$/i;
+function pageKey(u) {
+  try {
+    const x = new URL(u);
+    const params = [...x.searchParams.entries()].filter(([k]) => !PAGE_PARAM.test(k)).sort();
+    const path = x.pathname.replace(/\/page\/\d+\/?$/i, '/');
+    return x.host + path + '?' + params.map(([k, v]) => k + '=' + v).join('&');
+  } catch { return null; }
+}
+function pageNum(u) {
+  try {
+    const x = new URL(u);
+    const m = x.search.match(/[?&](?:p|page|pg|paged)=(\d+)/i) || x.pathname.match(/\/page\/(\d+)/i);
+    return m ? +m[1] : 1;
+  } catch { return 1; }
+}
+
 // 一覧ページから記事リンクと次ページURLを取り出す
 export function extractList(html, baseUrl, filter) {
   const base = new URL(baseUrl);
@@ -34,6 +52,8 @@ export function extractList(html, baseUrl, filter) {
     const u = new URL(url);
     if (u.host !== base.host || !/^https?:$/.test(u.protocol)) continue;
     if (u.pathname === '/' || url.replace(/\/$/, '') === baseUrl.replace(/\/$/, '')) continue;
+    // ページネーションリンク（?p=2, /page/2/ 等）は記事ではないので除外
+    if (pageKey(url) === pageKey(baseUrl)) continue;
     if (filter ? !filter.test(url) : EXCLUDE.test(url)) continue;
     seen.add(url);
     const title = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -62,6 +82,13 @@ function findNext(html, baseUrl) {
   for (const p of pats) {
     const m = html.match(p);
     if (m) return absolutize(m[1], baseUrl);
+  }
+  // rel=next がないサイト向け: ページ番号パラメータ(?p=2, ?page=2 等)や
+  // /page/2/ パスが現在ページ+1になっているリンクを探す
+  const baseKey = pageKey(baseUrl), baseNum = pageNum(baseUrl);
+  for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)) {
+    const url = absolutize(m[1], baseUrl);
+    if (url && pageKey(url) === baseKey && pageNum(url) === baseNum + 1) return url;
   }
   return null;
 }
@@ -238,15 +265,18 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
       const filter = f ? new RegExp(f) : null;
       const all = [];
       const seen = new Set();
+      const pageSeen = new Set([url]);
       let fetched = 0;
       while (url && fetched < pages) {
         const html = await get(url);
         fetched++;
         const { links, next } = extractList(html, url, filter);
         for (const l of links) if (!seen.has(l.url)) { seen.add(l.url); all.push(l); }
-        url = next && !seen.has(next) ? checkUrl(next, allowedHosts) : null;
+        url = next && !pageSeen.has(next) ? checkUrl(next, allowedHosts) : null;
+        if (url) pageSeen.add(url);
       }
-      return { status: 200, body: { links: all, pagesFetched: fetched } };
+      // ループを pages 上限で抜けた場合、url には未取得の次ページURLが残る
+      return { status: 200, body: { links: all, pagesFetched: fetched, next: url } };
     }
     if (u.pathname === '/api/videos') {
       const url = checkUrl(u.searchParams.get('url'), allowedHosts);

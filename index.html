@@ -55,6 +55,8 @@
   li img { width:96px; height:54px; object-fit:cover; border-radius:4px; flex:none; background:#000; }
   li .t { font-size:12px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
   li .k { color:var(--muted); font-size:11px; }
+  li .del { flex:none; align-self:flex-start; background:none; border:none; color:var(--muted); font-size:15px; padding:0 4px; cursor:pointer; }
+  li .del:hover { color:#ff7b7b; }
   #osd { position:absolute; inset:auto auto 16px 16px; width:auto; height:auto; padding:6px 12px; background:rgba(0,0,0,.75); color:#fff; border-radius:6px; font-size:15px; pointer-events:none; opacity:0; transition:opacity .3s; z-index:2; }
   #osd.show { opacity:1; }
   #keys { color:var(--muted); font-size:12px; margin-top:4px; }
@@ -71,7 +73,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.28</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.29</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
@@ -119,6 +121,12 @@ const WORKER_URL = 'https://auto-play-blog-videos.spankbangquadplayer.workers.de
 const API_BASE = location.hostname.endsWith('github.io') ? WORKER_URL.replace(/\/$/, '') : '';
 const queue = [];          // {type, id, title, article}
 const seenVideos = new Set();
+let pendingLinks = [];     // 動画抽出待ちの記事リンク
+let listNext = null;       // 未取得の次の一覧ページURL
+let loadingList = null;    // 取得中の一覧ページ Promise
+const seenLinks = new Set();
+const linksWaiters = [];   // pendingLinks の追加を待つ抽出ワーカー
+function notifyLinks() { linksWaiters.splice(0).forEach((r) => r()); }
 let loadToken = 0;
 let reachedEnd = false;
 let loadFinished = false;
@@ -238,10 +246,10 @@ function pickNext() {
   if (!queue.length) return -1;
   if ($('shuffle').checked) {
     const avail = [];
-    for (let i = 0; i < queue.length; i++) if (!fedSet.has(i)) avail.push(i);
+    for (let i = 0; i < queue.length; i++) if (!fedSet.has(i) && !queue[i].removed) avail.push(i);
     return avail.length ? avail[Math.floor(Math.random() * avail.length)] : -1;
   }
-  for (let i = 0; i < queue.length; i++) if (!fedSet.has(i)) return i;
+  for (let i = 0; i < queue.length; i++) if (!fedSet.has(i) && !queue[i].removed) return i;
   return -1;
 }
 
@@ -395,7 +403,7 @@ function slotDone(s) {
 // キューの任意indexをそのスロットで再生する（リストクリック・B/N 用）
 function slotPlayIndex(s, qi) {
   const v = queue[qi];
-  if (!v) return;
+  if (!v || v.removed) return;
   // そのindexより後を未割当に戻し、連続再生の続きとして扱えるようにする
   for (const i of [...fedSet]) if (i > qi && !playingIdx.has(i)) fedSet.delete(i);
   if (s.qi >= 0) playingIdx.delete(s.qi);
@@ -417,20 +425,64 @@ function restartSlot(s) {
   if (qi >= 0 && queue[qi]) slotLoad(s, qi);
 }
 
+// キュー項目を削除する。スロット側は index で管理しているため splice せず removed フラグを立てる
+function removeQueueItem(i) {
+  const v = queue[i];
+  if (!v || v.removed) return;
+  v.removed = true;
+  // 再生中のものを消した場合はそのスロットを次へ進める
+  if (playingIdx.has(i)) {
+    const s = slots.find((x) => x.qi === i);
+    if (s) slotDone(s);
+  }
+  renderQueue();
+}
+
 function renderQueue() {
-  $('qhead').textContent = `再生キュー (${queue.length})`;
+  const rest = queue.reduce((n, v) => n + (v.removed ? 0 : 1), 0);
+  $('qhead').textContent = `再生キュー (${rest})`;
   const ol = $('queue');
   ol.innerHTML = '';
   queue.forEach((v, i) => {
+    if (v.removed) return;
     const li = document.createElement('li');
+    li.dataset.qi = i;
     if (playingIdx.has(i)) li.className = 'active';
     li.innerHTML = `${thumb(v) ? `<img loading="lazy" src="${thumb(v)}" alt="">` : ''}<div><div class="t"></div><div class="k">${v.type}</div></div>`;
     li.querySelector('.t').textContent = v.title || v.article;
     li.onclick = () => slotPlayIndex(focusSlot(), i);
+    const del = document.createElement('button');
+    del.className = 'del'; del.textContent = '×'; del.title = 'キューから削除';
+    del.onclick = (e) => { e.stopPropagation(); removeQueueItem(i); };
+    li.appendChild(del);
     ol.appendChild(li);
   });
   const qi = focusSlot()?.qi;
-  if (qi >= 0) ol.children[qi]?.scrollIntoView({ block: 'nearest' });
+  if (qi >= 0 && !queue[qi]?.removed) ol.querySelector(`[data-qi="${qi}"]`)?.scrollIntoView({ block: 'nearest' });
+}
+
+// 次の一覧ページを1ページ分だけ取得して抽出待ちキューに追加する
+async function fetchNextListPage() {
+  if (!listNext || loadingList) return loadingList;
+  const token = loadToken;
+  loadingList = (async () => {
+    try {
+      const params = { url: listNext, pages: 1 };
+      if ($('filter').value.trim()) params.filter = $('filter').value.trim();
+      const { links, next } = await api('/api/list', params);
+      if (token !== loadToken) return;
+      listNext = next || null;
+      for (const l of links) if (!seenLinks.has(l.url)) { seenLinks.add(l.url); pendingLinks.push(l); }
+      setStatus(`一覧を追加読み込み（抽出待ち ${pendingLinks.length} 記事）`);
+    } catch (e) {
+      console.warn(e);
+      if (token === loadToken) listNext = null;
+    } finally {
+      loadingList = null;
+      notifyLinks();
+    }
+  })();
+  return loadingList;
 }
 
 async function api(path, params) {
@@ -452,6 +504,8 @@ $('start').onclick = async () => {
   if (!url) return;
   const token = ++loadToken;
   queue.length = 0; seenVideos.clear();
+  pendingLinks = []; seenLinks.clear(); listNext = null; loadingList = null;
+  notifyLinks(); // 前回の待機ワーカーを起こして終了させる
   resetFeed();
   try {
     setStatus('記事一覧を取得中…');
@@ -459,13 +513,20 @@ $('start').onclick = async () => {
     if ($('filter').value.trim()) params.filter = $('filter').value.trim();
     // 同じ一覧をあとで開き直したり共有したりできるよう、条件をアドレスバーに残す
     history.replaceState(null, '', '?' + new URLSearchParams(params));
-    const { links, pagesFetched } = await api('/api/list', params);
-    setStatus(`${pagesFetched}ページから記事 ${links.length} 件を見つけました。動画を抽出中…`);
+    const { links, pagesFetched, next } = await api('/api/list', params);
+    listNext = next || null;
+    for (const l of links) if (!seenLinks.has(l.url)) { seenLinks.add(l.url); pendingLinks.push(l); }
+    setStatus(`${pagesFetched}ページから記事 ${pendingLinks.length} 件を見つけました。動画を抽出中…`);
     let done = 0;
-    const work = links.slice();
     const worker = async () => {
-      while (work.length && token === loadToken) {
-        const l = work.shift();
+      while (token === loadToken) {
+        const l = pendingLinks.shift();
+        if (!l) {
+          // 記事が尽きたら、キューのスクロールによる次ページ読み込みを待つ
+          if (!listNext) break;
+          await new Promise((r) => linksWaiters.push(r));
+          continue;
+        }
         try {
           const { title, videos } = await api('/api/videos', { url: l.url });
           for (const v of videos) {
@@ -478,7 +539,7 @@ $('start').onclick = async () => {
         } catch (e) { console.warn(l.url, e); }
         if (token !== loadToken) return;
         done++;
-        setStatus(`動画抽出 ${done}/${links.length} 記事・キュー ${queue.length} 本`);
+        setStatus(`動画抽出 ${done} 記事・キュー ${queue.length} 本`);
         renderQueue();
       }
     };
@@ -486,12 +547,18 @@ $('start').onclick = async () => {
     if (token === loadToken) {
       loadFinished = true;
       pump();
-      setStatus(`抽出完了: ${links.length} 記事から ${queue.length} 本の動画`);
+      setStatus(`抽出完了: ${done} 記事から ${queue.length} 本の動画`);
     }
   } catch (e) {
     setStatus('エラー: ' + e.message);
   }
 };
+
+// キューを下までスクロールしたら次の一覧ページを読み込む（無限スクロール）
+$('queue').closest('aside').addEventListener('scroll', (e) => {
+  const el = e.currentTarget;
+  if (el.scrollTop + el.clientHeight > el.scrollHeight - 240) fetchNextListPage();
+});
 
 
 // ---- postMessage で操作するプレイヤー（Dailymotion / ニコニコ動画） ----
