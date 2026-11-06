@@ -120,11 +120,14 @@ export function extractVideos(html, pageUrl) {
       const type = (s[1].match(/\btype=["']([^"']+)["']/i) || [])[1] || '';
       if (src) cands.push({ src: src[1], type });
     }
-    const usable = cands.filter((c) => !/^(blob|data):/i.test(c.src));
+    // m3u8 はブラウザで直接再生できないため除外（mp4 等があればそちらが選ばれる）
+    const usable = cands.filter((c) => !/^(blob|data):/i.test(c.src) && !/\.m3u8(\?|$)/i.test(c.src));
     const best = usable.find((c) => /mp4/i.test(c.type) || /\.mp4(\?|$)/i.test(c.src)) || usable[0];
     const u = best && absolutize(best.src, pageUrl);
     if (u) add({ type: 'file', id: u });
   }
+  // Twitter(X) の動画MP4（twi-dl 等の保存サイトに直リンクで載る）
+  for (const m of text.matchAll(/https:\/\/video\.twimg\.com\/amplify_video\/[^"'\s]+?\.mp4/g)) add({ type: 'file', id: m[0] });
   // Youjizz は JSON 内に //host/videos/...h264.mp4 の直リンク（\/ エスケープ済み・複数画質）がある。最高画質を拾う
   const yjUrls = [...text.replace(/\\\//g, '/').matchAll(/\/\/[a-z0-9.-]*youjizz\.com\/videos\/[^"'\s]+?h264\.mp4[^"'\s]*/g)].map((m) => 'https:' + m[0]);
   if (yjUrls.length) add({ type: 'file', id: yjUrls[yjUrls.length - 1] });
