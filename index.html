@@ -54,13 +54,15 @@
 <body>
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.15</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.16</span></h1>
   <select id="preset">
     <option value="">プリセット…</option>
     <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
     <option value="https://onalism.com/">おなりずむ</option>
     <option value="https://www.po-kaki-to.com/archives">ポッカキット</option>
     <option value="https://roshutu-shuuti.net/">露出羞恥に魅せられて</option>
+    <option value="https://www.twi-dl.net/rank.php" data-filter="v\.php\?video=">twi-dl ランキング</option>
+    <option value="https://www.nukistream.com/category.php?id=41" data-filter="video\.php\?id=">ヌキストリーム</option>
   </select>
   <input id="url" type="url" placeholder="記事一覧ページのURL">
   <label>ページ数 <input id="pages" type="number" min="1" max="50" value="3" style="width:64px"></label>
@@ -109,7 +111,10 @@ let rateTimer = null;
 
 window.onYouTubeIframeAPIReady = () => { ytReady = true; };
 
-$('preset').onchange = (e) => { if (e.target.value) $('url').value = e.target.value; };
+$('preset').onchange = (e) => {
+  const o = e.target.selectedOptions[0];
+  if (o.value) { $('url').value = o.value; $('filter').value = o.dataset.filter || ''; }
+};
 
 function setStatus(s) { $('status').textContent = s; }
 
@@ -206,10 +211,12 @@ function play(i) {
     el.onerror = () => { setStatus('動画ファイルを再生できないためスキップしました'); next(); };
     $('stage').appendChild(el);
     el.play().catch((err) => { if (err.name === 'NotAllowedError') autoplayBlocked(); });
-  } else if (v.type === 'tokyomotion' || v.type === 'pornhub') {
+  } else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow') {
     // 操作 API のない埋め込みは iframe 表示とタイムアウトでの自動送りのみ（mp4 解決に失敗した場合のフォールバック）
     const f = document.createElement('iframe');
-    f.src = v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1` : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
+    f.src = v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
+      : v.type === 'javynow' ? `https://javynow.com/player/${v.id}/`
+      : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
     f.allow = 'autoplay; fullscreen; picture-in-picture';
     $('stage').appendChild(f);
     fallbackTimer = setTimeout(next, Math.max(10, +$('timeout').value) * 1000);

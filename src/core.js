@@ -110,6 +110,7 @@ export function extractVideos(html, pageUrl) {
   for (const m of text.matchAll(/(?:nicovideo\.jp\/watch\/|nico\.ms\/)((?:sm|nm|so)\d+)/g)) add({ type: 'niconico', id: m[1] });
   for (const m of text.matchAll(/tokyomotion\.net\/embed\/([0-9a-f]{16,40})/gi)) add({ type: 'tokyomotion', id: m[1].toLowerCase() });
   for (const m of text.matchAll(/pornhub(?:premium)?\.com\/(?:embed\/|view_video\.php\?[^"'\s]*viewkey=)([a-z0-9]{10,16})/gi)) add({ type: 'pornhub', id: m[1].toLowerCase() });
+  for (const m of text.matchAll(/javynow\.com\/player\/(\d+)/gi)) add({ type: 'javynow', id: m[1] });
   // <video> ごとに1本。src は拡張子なしのURLもあるため type や拡張子に頼らず拾い、複数の <source> があれば mp4 を優先する
   for (const m of text.matchAll(/<video\b([^>]*)>([\s\S]*?)<\/video>/gi)) {
     const cands = [];
