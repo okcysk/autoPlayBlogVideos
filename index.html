@@ -85,7 +85,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.32</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.33</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">プリセット ▾</button>
     <div id="presetGrid" hidden></div>
@@ -146,36 +146,36 @@ window.onYouTubeIframeAPIReady = () => { ytApiReady = true; };
 // プリセット一覧。同一サイトの別ページは1カードにまとめ、下半分にリンクを並べる。
 // filter は記事URLの絞り込み正規表現（従来の data-filter 相当）
 const PRESET_GROUPS = [
-  { site: 'ToxicStream', domain: 'toxicstream.com', items: [
+  { site: 'ToxicStream', domain: 'toxicstream.com', siteUrl: 'https://toxicstream.com/', items: [
     { label: 'ero カテゴリ', url: 'https://toxicstream.com/category/ero/' },
   ]},
-  { site: 'おなりずむ', domain: 'onalism.com', items: [
+  { site: 'おなりずむ', domain: 'onalism.com', siteUrl: 'https://onalism.com/', items: [
     { label: '一覧', url: 'https://onalism.com/' },
   ]},
-  { site: 'ポッカキット', domain: 'www.po-kaki-to.com', items: [
+  { site: 'ポッカキット', domain: 'www.po-kaki-to.com', siteUrl: 'https://www.po-kaki-to.com/', items: [
     { label: 'アーカイブ', url: 'https://www.po-kaki-to.com/archives' },
   ]},
-  { site: '露出羞恥に魅せられて', domain: 'roshutu-shuuti.net', items: [
+  { site: '露出羞恥に魅せられて', domain: 'roshutu-shuuti.net', siteUrl: 'https://roshutu-shuuti.net/', items: [
     { label: '一覧', url: 'https://roshutu-shuuti.net/' },
   ]},
-  { site: 'twi-dl', domain: 'www.twi-dl.net', items: [
+  { site: 'twi-dl', domain: 'www.twi-dl.net', siteUrl: 'https://www.twi-dl.net/', items: [
     { label: 'ランキング', url: 'https://www.twi-dl.net/rank.php', filter: 'v\\.php\\?video=' },
   ]},
-  { site: 'ヌキストリーム', domain: 'www.nukistream.com', items: [
+  { site: 'ヌキストリーム', domain: 'www.nukistream.com', siteUrl: 'https://www.nukistream.com/', items: [
     { label: '動画一覧', url: 'https://www.nukistream.com/category.php?id=41', filter: 'video\\.php\\?id=' },
   ]},
-  { site: 'monsnode', domain: 'monsnodes.com', items: [
+  { site: 'monsnode', domain: 'monsnodes.com', siteUrl: 'https://monsnode.com/', items: [
     { label: '通常', url: 'https://monsnodes.com/' },
     { label: '24時間', url: 'https://monsnode.com/?ranking=1&period=24h' },
     { label: '3日', url: 'https://monsnode.com/?ranking=1&period=3d' },
     { label: '7日', url: 'https://monsnode.com/?ranking=1&period=7d' },
   ]},
-  { site: 'monsnodes', domain: 'monsnodes.com', items: [
+  { site: 'monsnodes', domain: 'monsnodes.com', siteUrl: 'https://monsnodes.com/', items: [
     { label: 'Pick', url: 'https://monsnodes.com/?sort=m' },
     { label: 'New', url: 'https://monsnodes.com/?sort=n' },
     { label: 'Ranking', url: 'https://monsnodes.com/?sort=p' },
   ]},
-  { site: 'twihub', domain: 'twihub.link', items: [
+  { site: 'twihub', domain: 'twihub.link', siteUrl: 'https://twihub.link/', items: [
     { label: 'リアルタイム', url: 'https://twihub.link/posts?type=realtime', filter: 'posts/[0-9a-f]{8}-' },
     { label: '30日', url: 'https://twihub.link/posts?type=30d', filter: 'posts/[0-9a-f]{8}-' },
     { label: '7日', url: 'https://twihub.link/posts?type=7d', filter: 'posts/[0-9a-f]{8}-' },
@@ -205,9 +205,10 @@ function selectPreset(p) {
     img.onerror = () => { img.style.visibility = 'hidden'; };
     const site = document.createElement('span');
     site.textContent = g.site;
-    head.title = g.items[0].url;
+    head.title = g.siteUrl || g.items[0].url;
     head.append(img, site);
-    head.onclick = () => selectPreset(g.items[0]);
+    // カード上部はサイト自体を新しいタブで開く。下半分のリンクが再生プリセット
+    head.onclick = () => window.open(g.siteUrl || g.items[0].url, '_blank', 'noopener');
     const links = document.createElement('div');
     links.className = 'plinks';
     for (const p of g.items) {
