@@ -90,7 +90,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.41</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.42</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">プリセット ▾</button>
     <div id="presetGrid" hidden></div>
@@ -1075,7 +1075,11 @@ async function restoreState() {
     $('url').value = q.get('url');
     if (q.get('pages')) $('pages').value = q.get('pages');
     if (q.get('filter')) $('filter').value = q.get('filter');
-    $('start').click();
+    // n= で同時再生数を指定してから読み込みを開始する（共有リンク用）
+    (async () => {
+      if (q.get('n')) await setMultiCount(+q.get('n'));
+      $('start').click();
+    })();
   }
 }
 </script>
