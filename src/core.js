@@ -179,6 +179,53 @@ export function extractList(html, baseUrl, filter) {
     } catch { /* ignore */ }
     return { links: vids, next };
   }
+  // xvideo-jp.com はサーバー描画のまとめブログ。記事は /sad/<id> と /archives/<id>。
+  // 同じURLに画像リンク(.atd-img)とタイトルリンク(.mv-tlink)があるので統合する。
+  // ページネーションは /page/N で findNext がそのまま検出できる
+  if (/^xvideo-jp\.com$/i.test(base.host)) {
+    const byUrl = new Map();
+    for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      const url = absolutize(m[1], baseUrl);
+      if (!url) continue;
+      try {
+        if (new URL(url).hostname !== base.host) continue;
+        if (!/^\/(?:sad|archives)\/\d+\/?$/.test(new URL(url).pathname)) continue;
+      } catch { continue; }
+      const title = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const imgTag = m[2].match(/<img\b[^>]*>/i);
+      const imgSrc = imgTag && (imgTag[0].match(/\bdata-src=["']([^"']+)["']/i) || imgTag[0].match(/\bsrc=["']([^"']+)["']/i));
+      const thumb = imgSrc && /^https?:/i.test(absolutize(imgSrc[1], baseUrl) || '') ? absolutize(imgSrc[1], baseUrl) : null;
+      const prev = byUrl.get(url);
+      const better = title && (!prev?.title || title.length > prev.title.length);
+      byUrl.set(url, { url, title: better ? title : (prev?.title || ''), ...(prev?.thumb || thumb ? { thumb: prev?.thumb || thumb } : {}) });
+    }
+    let vids = [...byUrl.values()].filter((v) => v.title);
+    if (filter) vids = vids.filter((l) => filter.test(l.url));
+    return { links: vids, next: findNext(html, baseUrl) };
+  }
+  // openload.mov はサーバー描画。動画は /<cat>/op-<数字>/ 形式。
+  // タイトルは <span>、サムネイルは <img> が同じ <a> 内にある。ページネーションなし
+  if (/^openload\.mov$/i.test(base.host)) {
+    const vids = [];
+    const seen2 = new Set();
+    for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      const url = absolutize(m[1], baseUrl);
+      if (!url || seen2.has(url)) continue;
+      try {
+        const u = new URL(url);
+        if (u.host !== base.host) continue;
+        const seg = u.pathname.split('/').filter(Boolean);
+        if (seg.length !== 2 || !/\d/.test(seg[1])) continue;
+      } catch { continue; }
+      seen2.add(url);
+      const title = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\d{1,2}:\d{2}(:\d{2})?\s*/, '');
+      const img = m[2].match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i);
+      const thumb = img && /^https?:/i.test(absolutize(img[1], baseUrl) || '') ? absolutize(img[1], baseUrl) : null;
+      if (title) vids.push({ url, title, ...(thumb ? { thumb } : {}) });
+    }
+    const filtered = filter ? vids.filter((l) => filter.test(l.url)) : vids;
+    return { links: filtered, next: findNext(html, baseUrl) };
+  }
   if (!filter) {
     // 記事っぽいURL（日付・数字・articles 等）が多数あれば、それだけに絞る
     const articleLike = links.filter(l => /\/(20\d\d|\d{3,}|articles?|posts?|entry|archives|recipe|blog)[\/-]/i.test(new URL(l.url).pathname + '/'));
@@ -231,7 +278,7 @@ const PROXY_REFERERS = [
   [/^(.+\.)?po-kaki-to\.com$/i, 'https://www.po-kaki-to.com/'],
 ];
 // Referer を付けると 403 になる等、プロキシ経由にしたいが Referer は不要な配信元
-const PROXY_PLAIN = /(^|\.)(twimg\.com|twihub\.link)$/i;
+const PROXY_PLAIN = /(^|\.)(twimg\.com|twihub\.link|tapecontent\.net)$/i;
 function proxyReferer(url) {
   try {
     const host = new URL(url).hostname;
@@ -316,6 +363,45 @@ function decodeSingleAtob(html) {
     const url = atob(m[1]);
     return /^https?:\/\//.test(url) ? url : null;
   } catch { return null; }
+}
+
+// openload.mov の動画ページは eval packer で難読化され、
+// ストリームホスト（minochinos/streamtape/vsembed 等）の iframe URL を生成する。
+// radix が 36 を超えるため e() をその場で再現する（unpackPackedEval は 36 進 index 前提で使えない）
+function openloadEmbeds(html) {
+  const m = html.match(/\}\('((?:[^'\\]|\\.)*)',(\d+),(\d+),'((?:[^'\\]|\\.)*)'\.split\('\|'\),\d+,\{[^}]*\}\)\)/);
+  if (!m) return [];
+  const a = +m[2], c = +m[3];
+  const p = unescapeJs(m[1]);
+  const k = unescapeJs(m[4]).split('|');
+  const e = (n) => (n < a ? '' : e(Math.floor(n / a))) + ((n % a) > 35 ? String.fromCharCode((n % a) + 29) : (n % a).toString(36));
+  let out = p;
+  for (let i = c - 1; i >= 0; i--) if (k[i]) out = out.replace(new RegExp('\\b' + e(i) + '\\b', 'g'), k[i]);
+  const urls = [...out.matchAll(/src="?(https?:\/\/[^"'\s>]+)/g)].map((x) => x[1]);
+  // streamtape は get_video を解決して mp4 にできるので先頭に
+  return [...urls.filter((u) => /streamtape\.com/.test(u)), ...urls.filter((u) => !/streamtape\.com/.test(u))];
+}
+
+// streamtape の /e/ ページは get_video のURLを
+// `"/streamtape.com/get_" + ('XXXX...get_video?id=...').substring(n)...` のような
+// 文字列連結+substring で難読化する（毎回パターンが変わる）。
+// 文字列リテラル・+・括弧・.substring(n) だけの式に限定して評価する
+function streamtapeVideoPaths(html) {
+  const SAFE = /^(?:\s|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\(|\)|\+|\.substring\(\d+\))*$/;
+  const out = new Set();
+  for (const m of html.matchAll(/innerHTML\s*=\s*([^;]+);/g)) {
+    const ex = m[1].trim();
+    if (!ex.includes('video') || !SAFE.test(ex)) continue;
+    try {
+      const v = eval(ex);
+      if (typeof v === 'string') {
+        for (const u of v.matchAll(/(?:\/\/|https?:\/\/)?(?:[\w.-]*\.)?streamtape\.com\/(get_video\?[^\s"'<>]+)/g)) {
+          out.add(u[1]);
+        }
+      }
+    } catch { /* 式でなければ無視 */ }
+  }
+  return [...out];
 }
 
 // missav の動画ページは packer 難読化 JS に m3u8 URL（surrit.com）を埋め込む。
@@ -622,6 +708,33 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       if (!videos.length && /monsnodes?\.com$/i.test(new URL(url).hostname)) {
         const m = decodeAtobRedirect(html) || decodeSingleAtob(html);
         if (m) videos.push({ type: 'file', id: m });
+      }
+      // openload.mov は packer 難読化JSに外部ホストの埋め込みURLがある。
+      // streamtape は /e/ ページの get_video を解決すれば mp4 直リンクになるので優先する。
+      // 解決できなければ埋め込みURLを iframe で開く（openload タイプ）
+      if (!videos.length && /^openload\.mov$/i.test(new URL(url).hostname)) {
+        const embeds = openloadEmbeds(html);
+        const st = embeds.find((e) => /streamtape\.com\/e\//.test(e));
+        if (st) {
+          try {
+            const eid = st.match(/\/e\/([A-Za-z0-9]+)/)?.[1];
+            const ep = await get(`https://streamtape.com/e/${eid}`);
+            // div内の平文 get_video はダミー（500を返す）。JSの結合式から復元したものを使う
+            const candidates = streamtapeVideoPaths(ep);
+            for (const gv of candidates) {
+              try {
+                const r = await fetch(`https://streamtape.com/${gv}`, {
+                  redirect: 'follow',
+                  headers: { 'User-Agent': UA, Referer: `https://streamtape.com/e/${eid}` },
+                });
+                const final = r.url;
+                await r.body?.cancel?.();
+                if (r.ok && /tapecontent\.net/.test(final)) { videos.push({ type: 'file', id: final }); break; }
+              } catch { /* 次の候補 */ }
+            }
+          } catch { /* iframe フォールバックへ */ }
+        }
+        if (!videos.length && embeds[0]) videos.push({ type: 'openload', id: embeds[0] });
       }
       // TokyoMotion の埋め込みは外部から操作できないが、embed ページに mp4 直リンクが書かれている。
       // 取れたら file に置き換えてシーク・速度・終了検知を効かせる

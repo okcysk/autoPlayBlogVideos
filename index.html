@@ -38,6 +38,8 @@
   #now a { color:var(--accent); font-weight:normal; font-size:12px; margin-left:8px; }
   .controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:13px; }
   #status { color:var(--muted); font-size:12px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  footer { display:flex; gap:16px; justify-content:center; padding:10px 0 18px; color:var(--muted); font-size:12px; }
+  footer a { color:var(--muted); }
   aside { min-height:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:auto; }
   @media (max-width: 900px) {
     main { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); padding:8px; gap:8px; }
@@ -90,7 +92,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.49</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.51</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -123,6 +125,10 @@
     <ol id="queue"></ol>
   </aside>
 </main>
+<footer>
+  <a href="mailto:okcysk@gmail.com">okcysk@gmail.com</a>
+  <a href="https://x.com/okcysk46770" target="_blank" rel="noopener">X: @okcysk46770</a>
+</footer>
 </div>
 
 <script src="https://www.youtube.com/iframe_api"></script>
@@ -189,8 +195,14 @@ const PRESET_GROUPS = [
     { label: 'イメージビデオ', url: 'https://missav.ws/dm876/ja/genres/%E3%82%A4%E3%83%A1%E3%83%BC%E3%82%B8%E3%83%93%E3%83%87%E3%82%AA' },
     { label: '野外・露出', url: 'https://missav.ws/dm399/ja/genres/%E9%87%8E%E5%A4%96%E3%83%BB%E9%9C%B2%E5%87%BA' },
   ]},
-  { site: 'xvideos', domain: 'www.xvideos.com', siteUrl: 'https://www.xvideos.com/', items: [
-    { label: '日本語', url: 'https://www.xvideos.com/lang/japanese' },
+  { site: 'xvideo-jp', domain: 'xvideo-jp.com', siteUrl: 'https://xvideo-jp.com/', items: [
+    { label: '週間', url: 'https://xvideo-jp.com/?sort=week' },
+    { label: '月間', url: 'https://xvideo-jp.com/?sort=month' },
+    { label: '新着', url: 'https://xvideo-jp.com/' },
+  ]},
+  { site: 'openload', domain: 'openload.mov', siteUrl: 'https://openload.mov/', items: [
+    { label: '急上昇', url: 'https://openload.mov/soaring/' },
+    { label: '人気', url: 'https://openload.mov/popularity/' },
   ]},
   { site: 'twihub', domain: 'twihub.link', siteUrl: 'https://twihub.link/', items: [
     { label: 'リアルタイム', url: 'https://twihub.link/posts?type=realtime', filter: 'posts/[0-9a-f]{8}-' },
@@ -420,7 +432,7 @@ function slotLoad(s, qi, resume = 0) {
   else if (v.type === 'vimeo') slotPlayVimeo(s, v);
   else if (v.type === 'file') slotPlayFile(s, v);
   else if (v.type === 'hls') slotPlayHls(s, v);
-  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow') slotPlayFrame(s, v);
+  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow' || v.type === 'openload') slotPlayFrame(s, v);
   else if (embedAdapters[v.type]) slotPlayEmbed(s, v);
   else s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
   renderQueue();
@@ -522,7 +534,8 @@ function slotPlayFrame(s, v) {
   // 操作 API のない埋め込みは iframe 表示とタイムアウトでの自動送りのみ（mp4 解決に失敗した場合のフォールバック）
   const f = document.createElement('iframe');
   f.className = 'np';
-  f.src = v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
+  f.src = v.type === 'openload' ? v.id
+    : v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
     : v.type === 'javynow' ? `https://javynow.com/player/${v.id}/`
     : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
   f.allow = 'autoplay; fullscreen; picture-in-picture';
