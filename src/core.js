@@ -115,6 +115,15 @@ export function extractList(html, baseUrl, filter) {
       return { links: vids, next };
     }
   }
+  // YouTube はアンカーがJS描画で取れないため ytInitialData から一覧を復元する。
+  // チャンネルの /videos 等が対象。続きは continuation API が必要なので next は無し
+  if (/(^|\.)(youtube\.com|youtu\.be|music\.youtube\.com)$/i.test(base.host)) {
+    const yt = extractYouTubeList(html);
+    if (yt) {
+      const links = filter ? yt.filter((l) => filter.test(l.url)) : yt;
+      return { links, next: null };
+    }
+  }
   // monsnodes.com (Twitter Video Tools) はサーバー描画の一覧。再生対象は
   // redirect.php?v=<id> のリンクだけで、/v<disp_id> の詳細ページや投票リンクが混ざる。
   // redirect リンクと同じ順序で並ぶ /v リンクのタイトル(ユーザー名)を表示名に使う
@@ -288,6 +297,60 @@ function javynowHlsUrl(html) {
   const dec = unpackPacked(html);
   const m = dec && dec.match(re);
   return m ? m[0] : null;
+}
+
+// YouTube の ytInitialData（ページ内JSON）から動画一覧を拾う。
+// チャンネルの /videos 等は初期HTMLに動画が埋め込まれているが、
+// リンクはJS描画なのでアンカーでは取れない。videoRenderer / lockupViewModel 両形式に対応
+function extractYouTubeList(html) {
+  const i = html.indexOf('ytInitialData');
+  if (i < 0) return null;
+  const start = html.indexOf('{', html.indexOf('=', i));
+  if (start < 0) return null;
+  // 文字列リテラルを考慮して対応する閉じ括弧まで切り出す
+  let depth = 0, inStr = false, esc = false, end = -1;
+  for (let j = start; j < html.length; j++) {
+    const c = html[j];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) { end = j + 1; break; }
+  }
+  if (end < 0) return null;
+  let data;
+  try { data = JSON.parse(html.slice(start, end)); } catch { return null; }
+  const out = [], seen = new Set();
+  const ID_RE = /^[A-Za-z0-9_-]{11}$/;
+  const push = (id, title, thumb) => {
+    if (!ID_RE.test(id || '') || seen.has(id)) return;
+    seen.add(id);
+    out.push({ url: `https://www.youtube.com/watch?v=${id}`, title: title || '', ...(thumb ? { thumb } : {}) });
+  };
+  const titleText = (t) => (t?.runs?.map((r) => r.text).join('') || t?.content || '');
+  const walk = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { for (const x of node) walk(x); return; }
+    if (typeof node.videoId === 'string') {
+      const thumbs = node.thumbnail?.thumbnails;
+      push(node.videoId, titleText(node.title), thumbs?.length ? thumbs[thumbs.length - 1].url : null);
+    }
+    const lv = node.lockupViewModel;
+    if (lv && lv.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO') {
+      const meta = lv.metadata?.lockupMetadataViewModel;
+      const img = lv.contentImage?.collectionThumbnailViewModel?.primaryThumbnail?.thumbnailViewModel?.image
+        || lv.contentImage?.thumbnailViewModel?.image;
+      const srcs = img?.sources;
+      push(lv.contentId, meta?.title?.content || '', srcs?.length ? srcs[srcs.length - 1].url : null);
+    }
+    for (const k of Object.keys(node)) walk(node[k]);
+  };
+  walk(data);
+  return out.length ? out : null;
 }
 
 // 記事HTMLから動画を抽出
