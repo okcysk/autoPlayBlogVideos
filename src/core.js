@@ -139,6 +139,46 @@ export function extractList(html, baseUrl, filter) {
     np.searchParams.set('page', String(cur + 1));
     return { links: playable, next: np.href };
   }
+  // xvideos.com はサーバー描画。一覧は /video.<id>/<slug> リンクで、
+  // サムネイルは親要素の data-video JSON に入っている。
+  // ページネーションは /lang/japanese/N のようなパス末尾の番号
+  if (/(^|\.)xvideos\.com$/i.test(base.host)) {
+    const thumbs = new Map();
+    for (const m of html.matchAll(/data-video='(\{[^']+\})'/g)) {
+      try {
+        const d = JSON.parse(m[1]);
+        const t = d.sfwThumbUrl || d.mozaiqueListing;
+        if (d.id && t) thumbs.set(d.id, t);
+      } catch { /* ignore */ }
+    }
+    const byUrl = new Map();
+    for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']*\/video\.[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      const url = absolutize(m[1], baseUrl);
+      if (!url) continue;
+      const idm = url.match(/\/video\.([a-z0-9]+)\//i);
+      const title = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const prev = byUrl.get(url);
+      const better = title && !/^(video|watch)$/i.test(title) && (!prev?.title || title.length > prev.title.length);
+      const thumb = (idm && thumbs.get(idm[1])) || prev?.thumb || null;
+      byUrl.set(url, { url, title: better ? title : (prev?.title || ''), ...(thumb ? { thumb } : {}) });
+    }
+    let vids = [...byUrl.values()].filter((v) => v.title);
+    if (filter) vids = vids.filter((l) => filter.test(l.url));
+    // 末尾の数字を +1 したページへのリンクが実在する場合だけ next にする
+    let next = null;
+    try {
+      const pm = base.pathname.match(/^(.*?)(?:\/(\d+))?\/?$/);
+      const stem = pm[1] || '/';
+      const cur = pm[2] ? +pm[2] : 1;
+      const want = `${stem === '/' ? '' : stem}/${cur + 1}`;
+      const has = [...html.matchAll(/href=["']([^"']+)["']/gi)].some((m2) => {
+        const u2 = absolutize(m2[1], baseUrl);
+        try { return u2 && new URL(u2).pathname === want; } catch { return false; }
+      });
+      if (has) next = new URL(want, base.origin).href;
+    } catch { /* ignore */ }
+    return { links: vids, next };
+  }
   if (!filter) {
     // 記事っぽいURL（日付・数字・articles 等）が多数あれば、それだけに絞る
     const articleLike = links.filter(l => /\/(20\d\d|\d{3,}|articles?|posts?|entry|archives|recipe|blog)[\/-]/i.test(new URL(l.url).pathname + '/'));
@@ -384,6 +424,17 @@ export function extractVideos(html, pageUrl) {
   const seen = new Set();
   const add = (v) => { const k = v.type + ':' + v.id; if (!seen.has(k)) { seen.add(k); out.push(v); } };
   const text = decodeEntities(html);
+
+  // xvideos の動画ページは html5player.setVideoUrlHigh/Low に mp4 直リンクがある。
+  // 署名付きで期限があるためキュー投入時に毎回取り直す（ここで毎回抽出される）
+  try {
+    if (/(^|\.)xvideos\.com$/i.test(new URL(pageUrl).hostname)) {
+      const hi = text.match(/html5player\.setVideoUrlHigh\('([^']+)'\)/);
+      const lo = text.match(/html5player\.setVideoUrlLow\('([^']+)'\)/);
+      const u = hi?.[1] || lo?.[1];
+      if (u) return [{ type: 'file', id: u }];
+    }
+  } catch { /* ignore */ }
 
   for (const m of text.matchAll(/(?:youtube(?:-nocookie)?\.com\/(?:embed\/|watch\?(?:[^"'\s]*&)?v=|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/g)) {
     if (m[1] !== 'videoseries') add({ type: 'youtube', id: m[1] });
