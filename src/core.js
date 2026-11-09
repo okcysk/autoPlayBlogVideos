@@ -4,7 +4,7 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const MAX_PAGES = 50;
 
 export async function fetchHtml(url, init = {}) {
-  const res = await fetch(url, { ...init, headers: { 'User-Agent': UA, 'Accept-Language': 'ja,en;q=0.8' }, redirect: 'follow' });
+  const res = await fetch(url, { ...init, headers: { 'User-Agent': UA, 'Accept-Language': 'ja,en;q=0.8', ...(init.headers || {}) }, redirect: 'follow' });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
   return res.text();
 }
@@ -22,6 +22,14 @@ function absolutize(href, base) {
 }
 
 const EXCLUDE = /\/(category|tag|tags|page|feed|author|wp-content|wp-json|wp-admin|wp-login|search|comments|login|privacy|contact|about)(\/|$)|[?&](s|replytocom|share)=|\.(jpe?g|png|gif|webp|svg|css|js|xml|pdf|zip)$/i;
+
+// missav 系ミラー（missav.ws 等は Cloudflare チャレンジで直接取れない）。
+// thisav.my は現行ミラーへリダイレクトする公式窓口だが、Worker の IP では 500 になる
+// ことがあるため、現行ミラー直と元URLもフォールバック候補にする
+// missav 系は Cloudflare Workers の IP ではブロックされるため、実際の取得は
+// index.html がブラウザから直接行う（CORS がオリジンを反射するため可能）。
+// ここでは一覧・動画の抽出ルールだけを担う
+const MISSAV_HOST = /(^|\.)(missav\d*|thisav)\.[a-z.]+$/i;
 
 // ページネーション判定用: ?p=2, ?page=2, /page/2/ 等のページ番号を除いたURLキー
 const PAGE_PARAM = /^(p|page|pg|paged)$/i;
@@ -50,7 +58,9 @@ export function extractList(html, baseUrl, filter) {
     const url = absolutize(m[1], baseUrl);
     if (!url || seen.has(url)) continue;
     const u = new URL(url);
-    if (u.host !== base.host || !/^https?:$/.test(u.protocol)) continue;
+    // missav は取得時に thisav.my へ書き換えるため、リンク先ホスト（現行ミラー）とずれる。ミラー同士は同一サイト扱い
+    const sameSite = u.host === base.host || (MISSAV_HOST.test(base.host) && MISSAV_HOST.test(u.host));
+    if (!sameSite || !/^https?:$/.test(u.protocol)) continue;
     if (u.pathname === '/' || url.replace(/\/$/, '') === baseUrl.replace(/\/$/, '')) continue;
     // ページネーションリンク（?p=2, /page/2/ 等）は記事ではないので除外
     if (pageKey(url) === pageKey(baseUrl)) continue;
@@ -61,6 +71,49 @@ export function extractList(html, baseUrl, filter) {
     const img = m[2].match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i);
     const thumb = img && /^https?:/i.test(absolutize(img[1], baseUrl) || '') ? absolutize(img[1], baseUrl) : null;
     links.push(thumb ? { url, title, thumb } : { url, title });
+  }
+  // missav 系: 動画ページは /<lang>/<コード>-<数字> 形式。ナビやジャンル・メーカーリンクが混ざるので絞る。
+  // 同じURLにサムネイル用リンクとタイトル用リンクがあるため、タイトルが取れる方を優先して統合する。
+  // ページネーションは ?page=N で、取得元ホストとリンク先ホスト(ミラー)がずれるため直接探す
+  if (MISSAV_HOST.test(base.host)) {
+    const byUrl = new Map();
+    for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      const url = absolutize(m[1], baseUrl);
+      if (!url) continue;
+      try {
+        const u = new URL(url);
+        if (!MISSAV_HOST.test(u.hostname)) continue;
+        // コードは「英数字-数字」（fway-107, fc2-ppv-5005658 等）。fc2 や naughty4610 の様な
+        // ハイフン無し・末尾数字だけのメーカー/女優スラッグを弾くため -数字 を必須にする
+        if (!/^\/(?:dm\d+\/)?[a-z]{2}\/[a-z0-9][a-z0-9-]*-\d+\/?$/i.test(u.pathname)) continue;
+      } catch { continue; }
+      const title = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      // missav の一覧画像は遅延読み込みで data-src に入っている（src は base64 プレースホルダ）
+      const imgTag = m[2].match(/<img\b[^>]*>/i);
+      const imgSrc = imgTag && (imgTag[0].match(/\bdata-src=["']([^"']+)["']/i) || imgTag[0].match(/\bsrc=["']([^"']+)["']/i));
+      const thumb = imgSrc && /^https?:/i.test(absolutize(imgSrc[1], baseUrl) || '') ? absolutize(imgSrc[1], baseUrl) : null;
+      // サムネイル用・再生時間・タイトルのリンクが同じURLで重複するので統合する。
+      // 再生時間（1:23:45 形式）より正式なタイトルを優先する
+      const prev = byUrl.get(url);
+      const isDur = (t) => /^\d{1,2}:\d{2}/.test(t);
+      const bestTitle = (prev?.title && !isDur(prev.title)) ? prev.title
+        : (title && !isDur(title)) ? title : (prev?.title || title);
+      byUrl.set(url, { url, title: bestTitle, ...(prev?.thumb || thumb ? { thumb: prev?.thumb || thumb } : {}) });
+    }
+    const vids = [...byUrl.values()];
+    if (vids.length) {
+      let next = null;
+      const want = pageNum(baseUrl) + 1;
+      for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)) {
+        const url = absolutize(m[1], baseUrl);
+        if (!url || pageNum(url) !== want) continue;
+        try {
+          const u = new URL(url);
+          if (MISSAV_HOST.test(u.hostname) && u.pathname === base.pathname) { next = url; break; }
+        } catch { /* ignore */ }
+      }
+      return { links: vids, next };
+    }
   }
   // monsnodes.com (Twitter Video Tools) はサーバー描画の一覧。再生対象は
   // redirect.php?v=<id> のリンクだけで、/v<disp_id> の詳細ページや投票リンクが混ざる。
@@ -188,6 +241,25 @@ function decodeSingleAtob(html) {
   } catch { return null; }
 }
 
+// missav の動画ページは packer 難読化 JS に m3u8 URL を埋め込む。
+// サイトは /jmpres/<ホスト>/<パス> プロキシ経由で再生するので、その形に組み立てて返す
+function missavHlsUrl(html) {
+  const jmpres = (html.match(/https:\/\/[a-zA-Z0-9.-]+\/jmpres\//) || [])[0];
+  const wrap = (u) => (jmpres ? jmpres + u.replace(/^https?:\/\//, '') : u);
+  const pick = (text) => {
+    const urls = [...text.matchAll(/https:\/\/[^'"\s]+?\.m3u8[^'"\s]*/g)].map((m) => m[0]);
+    return urls.find((u) => /playlist\.m3u8/.test(u)) || urls[0] || null;
+  };
+  const direct = pick(html);
+  if (direct) return wrap(direct);
+  for (const m of html.matchAll(/\}\('((?:[^'\\]|\\.)*)',(\d+),(\d+),'((?:[^'\\]|\\.)*)'\.split\('\|'\)/g)) {
+    const dec = unpackPacked(m[0]);
+    const u = dec && pick(dec);
+    if (u) return wrap(u);
+  }
+  return null;
+}
+
 // javynow のプレイヤーページから HLS(m3u8) の URL を取り出す。
 // URL は署名付き（key=/end=）で期限があるため、再生直前に毎回取り直す必要がある
 function javynowHlsUrl(html) {
@@ -225,8 +297,9 @@ export function extractVideos(html, pageUrl) {
       const type = (s[1].match(/\btype=["']([^"']+)["']/i) || [])[1] || '';
       if (src) cands.push({ src: src[1], type });
     }
-    // m3u8 はブラウザで直接再生できないため除外（mp4 等があればそちらが選ばれる）
-    const usable = cands.filter((c) => !/^(blob|data):/i.test(c.src) && !/\.m3u8(\?|$)/i.test(c.src));
+    // m3u8 はブラウザで直接再生できないため除外（mp4 等があればそちらが選ばれる）。
+    // Vue の data-src="item.x ? cdnUrl(`...`)" のようなテンプレート式は空白・バッククォートを含むので弾く
+    const usable = cands.filter((c) => !/^(blob|data):/i.test(c.src) && !/\.m3u8(\?|$)/i.test(c.src) && !/[\s`$]/.test(c.src));
     const best = usable.find((c) => /mp4/i.test(c.type) || /\.mp4(\?|$)/i.test(c.src)) || usable[0];
     const u = best && absolutize(best.src, pageUrl);
     if (u) add({ type: 'file', id: u });
@@ -255,16 +328,25 @@ export function extractVideos(html, pageUrl) {
       if (out[i].type === 'tokyomotion' && fileIds.some((u) => u.includes('/' + out[i].id))) out.splice(i, 1);
     }
   }
+  // missav 系は packer 難読化の m3u8 のみ。/jmpres/ プロキシ URL にして hls.js で再生する
+  if (!out.length) {
+    try {
+      if (MISSAV_HOST.test(new URL(pageUrl).hostname)) {
+        const hls = missavHlsUrl(text);
+        if (hls) add({ type: 'hls', id: hls });
+      }
+    } catch { /* ignore */ }
+  }
   return out;
 }
 
-function pageTitle(html) {
+export function pageTitle(html) {
   const m = html.match(/<meta\b[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i) || html.match(/<title[^>]*>([^<]*)<\/title>/i);
   return m ? decodeEntities(m[1]).trim() : '';
 }
 
 // og:image / twitter:image から記事のサムネイルを取る
-function pageThumb(html, pageUrl) {
+export function pageThumb(html, pageUrl) {
   for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
     const tag = m[0];
     if (!/(?:property|name)=["'](?:og:image(?::secure_url)?|twitter:image(?::src)?)['"]/i.test(tag)) continue;

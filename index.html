@@ -85,7 +85,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.33</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.34</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">プリセット ▾</button>
     <div id="presetGrid" hidden></div>
@@ -164,8 +164,8 @@ const PRESET_GROUPS = [
   { site: 'ヌキストリーム', domain: 'www.nukistream.com', siteUrl: 'https://www.nukistream.com/', items: [
     { label: '動画一覧', url: 'https://www.nukistream.com/category.php?id=41', filter: 'video\\.php\\?id=' },
   ]},
-  { site: 'monsnode', domain: 'monsnodes.com', siteUrl: 'https://monsnode.com/', items: [
-    { label: '通常', url: 'https://monsnodes.com/' },
+  { site: 'monsnode', domain: 'monsnode.com', siteUrl: 'https://monsnode.com/', items: [
+    { label: '新着', url: 'https://monsnode.com/' },
     { label: '24時間', url: 'https://monsnode.com/?ranking=1&period=24h' },
     { label: '3日', url: 'https://monsnode.com/?ranking=1&period=3d' },
     { label: '7日', url: 'https://monsnode.com/?ranking=1&period=7d' },
@@ -174,6 +174,9 @@ const PRESET_GROUPS = [
     { label: 'Pick', url: 'https://monsnodes.com/?sort=m' },
     { label: 'New', url: 'https://monsnodes.com/?sort=n' },
     { label: 'Ranking', url: 'https://monsnodes.com/?sort=p' },
+  ]},
+  { site: 'missav', domain: 'missav.ws', siteUrl: 'https://missav.ws/', items: [
+    { label: 'イメージビデオ', url: 'https://missav.ws/dm876/ja/genres/%E3%82%A4%E3%83%A1%E3%83%BC%E3%82%B8%E3%83%93%E3%83%87%E3%82%AA' },
   ]},
   { site: 'twihub', domain: 'twihub.link', siteUrl: 'https://twihub.link/', items: [
     { label: 'リアルタイム', url: 'https://twihub.link/posts?type=realtime', filter: 'posts/[0-9a-f]{8}-' },
@@ -573,7 +576,62 @@ async function fetchNextListPage() {
   return loadingList;
 }
 
+// missav 系はサーバー(Worker)の IP ではブロックされるため、ブラウザから直接取得する。
+// サイトが CORS でオリジンを反射するので fetch で読める。抽出ロジックは src/core.js を共用
+const MISSAV_HOST_RE = /(^|\.)(missav\d*|thisav)\.[a-z.]+$/i;
+const MISSAV_MIRRORS = ['https://missav06.net', 'https://www.thisav.my'];
+const isMissavUrl = (s) => { try { return MISSAV_HOST_RE.test(new URL(s).hostname); } catch { return false; } };
+
+async function missavCore() { return import('./src/core.js'); }
+
+async function missavFetchHtml(url) {
+  const u = new URL(url);
+  const path = u.pathname + u.search;
+  const candidates = [...MISSAV_MIRRORS.map((m) => m + path), url];
+  let lastErr = null;
+  for (const c of candidates) {
+    try {
+      const r = await fetch(c, { credentials: 'omit' });
+      if (!r.ok) continue;
+      const html = await r.text();
+      if (!/Just a moment|cf-chl|_cf_chl_opt|Attention Required/i.test(html)) return html;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('missav の取得に失敗しました（ミラーサイト変更の可能性）');
+}
+
+async function apiListMissav(params) {
+  const core = await missavCore();
+  const filter = params.filter ? new RegExp(params.filter) : null;
+  const pages = Math.min(Math.max(parseInt(params.pages || '1', 10), 1), 50);
+  const all = [], seen = new Set(), pageSeen = new Set([params.url]);
+  let url = params.url, fetched = 0, next = null;
+  while (url && fetched < pages) {
+    const html = await missavFetchHtml(url);
+    fetched++;
+    const r = core.extractList(html, url, filter);
+    for (const l of r.links) if (!seen.has(l.url)) { seen.add(l.url); all.push(l); }
+    next = r.next && !pageSeen.has(r.next) ? r.next : null;
+    url = next;
+    if (url) pageSeen.add(url);
+  }
+  return { links: all, pagesFetched: fetched, next: url };
+}
+
+async function apiVideosMissav(params) {
+  const core = await missavCore();
+  const html = await missavFetchHtml(params.url);
+  const videos = core.extractVideos(html, params.url);
+  const thumb = core.pageThumb(html, params.url);
+  if (thumb) for (const v of videos) v.thumb = v.thumb || thumb;
+  return { title: core.pageTitle(html), videos };
+}
+
 async function api(path, params) {
+  if (isMissavUrl(params.url)) {
+    if (path === '/api/list') return apiListMissav(params);
+    if (path === '/api/videos') return apiVideosMissav(params);
+  }
   if (location.hostname.endsWith('github.io') && !API_BASE) {
     throw new Error('GitHub Pages では API が動きません。index.html の WORKER_URL に Cloudflare Worker の URL を設定してください');
   }

@@ -29,7 +29,15 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(api.status, { 'Content-Type': 'application/json; charset=utf-8' });
     return res.end(JSON.stringify(api.body));
   }
-  // 画面は index.html だけを返す（server.js などほかのファイルは配信しない）
+  // 画面は index.html だけを返す。missav 系はブラウザから直接 src/core.js を import するためこれも配信する
+  if (u.pathname === '/src/core.js') {
+    const f = path.join(path.dirname(fileURLToPath(import.meta.url)), 'src', 'core.js');
+    return fs.readFile(f, (err, data) => {
+      if (err) { res.writeHead(404); return res.end('Not found'); }
+      res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+      res.end(data);
+    });
+  }
   if (u.pathname !== '/' && u.pathname !== '/index.html') { res.writeHead(404); return res.end('Not found'); }
   fs.readFile(INDEX, (err, data) => {
     if (err) { res.writeHead(500); return res.end('index.html not found'); }
