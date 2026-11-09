@@ -62,6 +62,21 @@ export function extractList(html, baseUrl, filter) {
     const thumb = img && /^https?:/i.test(absolutize(img[1], baseUrl) || '') ? absolutize(img[1], baseUrl) : null;
     links.push(thumb ? { url, title, thumb } : { url, title });
   }
+  // monsnodes.com (Twitter Video Tools) はサーバー描画の一覧。再生対象は
+  // redirect.php?v=<id> のリンクだけで、/v<disp_id> の詳細ページや投票リンクが混ざる。
+  // redirect リンクと同じ順序で並ぶ /v リンクのタイトル(ユーザー名)を表示名に使う
+  if (/^monsnode\.com$/i.test(base.host)) {
+    const playable = links.filter(l => /\/redirect\.php\?v=\d+$/.test(l.url));
+    if (!playable.length) return { links: [], next: null };
+    const users = links.filter(l => /\/v\d+$/.test(new URL(l.url).pathname));
+    playable.forEach((l, i) => { if (users[i] && users[i].title) l.title = users[i].title; });
+    // 「More」リンクは ?page=N 形式で、/ は page=1 相当（?page=1 が2ページ目）。
+    // /page/N/ の通常パターンと違い pageNum 判定では検出できないので直接組み立てる
+    const np = new URL(baseUrl);
+    const cur = parseInt(np.searchParams.get('page') || '0', 10) || 0;
+    np.searchParams.set('page', String(cur + 1));
+    return { links: playable, next: np.href };
+  }
   if (!filter) {
     // 記事っぽいURL（日付・数字・articles 等）が多数あれば、それだけに絞る
     const articleLike = links.filter(l => /\/(20\d\d|\d{3,}|articles?|posts?|entry|archives|recipe|blog)[\/-]/i.test(new URL(l.url).pathname + '/'));
@@ -159,6 +174,16 @@ function decodeAtobRedirect(html) {
   if (!a || !b) return null;
   try {
     const url = atob(atob(b) + atob(a));
+    return /^https?:\/\//.test(url) ? url : null;
+  } catch { return null; }
+}
+
+// monsnodes.com の redirect.php は `var u = atob('...')` で mp4 URL を難読化している
+function decodeSingleAtob(html) {
+  const m = html.match(/var u = atob\('([A-Za-z0-9+/=]+)'\)/);
+  if (!m) return null;
+  try {
+    const url = atob(m[1]);
     return /^https?:\/\//.test(url) ? url : null;
   } catch { return null; }
 }
@@ -274,13 +299,20 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
       const pages = Math.min(Math.max(parseInt(u.searchParams.get('pages') || '1', 10), 1), MAX_PAGES);
       const f = u.searchParams.get('filter');
       const filter = f ? new RegExp(f) : null;
-      // monsnodes.com は API 駆動のサイト。/api/list.php の JSON を記事リンクに変換する
+      // monsnodes.com (monsnodes Beta) は API 駆動のサイト。/api/list.php の JSON を記事リンクに変換する
+      // ※ monsnodes.com (Twitter Video Tools) は別サイトで、上の extractList 側で処理する
       {
         const lu = new URL(url);
-        if (/^monsnodes?\.com$/i.test(lu.hostname)) {
+        if (/^monsnodes\.com$/i.test(lu.hostname)) {
           const isApi = lu.pathname.startsWith('/api/list.php');
           const apiBase = `https://${lu.host}/api/list.php`;
-          const token = isApi ? (lu.searchParams.get('t') || 'bQ') : 'bQ';
+          // サイト側の sort=m/n/p は token=b64(sort文字) に対応（既定 m = 'bQ'）
+          const SORT_TOKENS = { m: 'bQ', n: 'bg', p: 'cA' };
+          let token = isApi ? (lu.searchParams.get('t') || 'bQ') : 'bQ';
+          if (!isApi) {
+            const s = lu.searchParams.get('sort');
+            if (s && SORT_TOKENS[s]) token = SORT_TOKENS[s];
+          }
           let page = isApi ? Math.max(1, parseInt(lu.searchParams.get('page') || '1', 10)) : 1;
           const all = [], seen = new Set();
           let fetched = 0, totalPages = page;
@@ -337,9 +369,10 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
           } catch { /* リンク先が取れなくても他を試す */ }
         }
       }
-      // monsnodes の /api/go.php は atob 難読化ページで、復号すると video.twimg.com の mp4 直リンクになる
+      // monsnodes の /api/go.php は atob 難読化ページで、復号すると video.twimg.com の mp4 直リンクになる。
+      // monsnodes.com の /redirect.php も同様に `var u = atob(...)` で mp4 URL を隠している
       if (!videos.length && /monsnodes?\.com$/i.test(new URL(url).hostname)) {
-        const m = decodeAtobRedirect(html);
+        const m = decodeAtobRedirect(html) || decodeSingleAtob(html);
         if (m) videos.push({ type: 'file', id: m });
       }
       // TokyoMotion の埋め込みは外部から操作できないが、embed ページに mp4 直リンクが書かれている。

@@ -13,7 +13,7 @@
   header { flex:none; padding:8px 16px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
   header h1 { font-size:15px; margin:0 8px 0 0; white-space:nowrap; }
   header h1 .ver { font-size:11px; font-weight:normal; color:var(--muted); margin-left:4px; }
-  input, select, button { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 10px; font:inherit; }
+  input, button { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 10px; font:inherit; }
   input[type=url] { flex:1 1 240px; min-width:0; }
   button { cursor:pointer; }
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
@@ -61,6 +61,12 @@
   #osd.show { opacity:1; }
   #keys { color:var(--muted); font-size:12px; margin-top:4px; }
   #keys kbd { background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 5px; font:inherit; }
+  /* プリセット選択: サイトアイコン付きカードのグリッド */
+  #presetWrap { position:relative; }
+  #presetGrid { position:absolute; top:calc(100% + 6px); left:0; z-index:60; display:grid; grid-template-columns:repeat(auto-fill,minmax(104px,1fr)); gap:8px; width:min(560px,90vw); max-height:55vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; box-shadow:0 8px 24px rgba(0,0,0,.5); }
+  .pcard { display:flex; flex-direction:column; align-items:center; gap:5px; padding:8px 4px 6px; background:none; border:1px solid var(--line); border-radius:6px; color:var(--text); font-size:11px; line-height:1.3; cursor:pointer; text-align:center; }
+  .pcard:hover, .pcard:focus-visible { border-color:var(--accent); background:#232a33; outline:none; }
+  .pcard img { width:36px; height:36px; border-radius:6px; background:#000; }
   /* Shinobi 広告が body 全体を包むラッパーを挿すので、レイアウトから除外して flex を維持する */
   [data-admax-sticky-wrapper], [data-admax-sticky-wrapper] > div:first-child { display:contents !important; }
   /* 広告スクリプトが body を書き換えても高さが崩れないよう、アプリ全体を1つのコンテナにまとめる */
@@ -73,19 +79,11 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.30</span></h1>
-  <select id="preset">
-    <option value="">プリセット…</option>
-    <option value="https://toxicstream.com/category/ero/">ToxicStream</option>
-    <option value="https://onalism.com/">おなりずむ</option>
-    <option value="https://www.po-kaki-to.com/archives">ポッカキット</option>
-    <option value="https://roshutu-shuuti.net/">露出羞恥に魅せられて</option>
-    <option value="https://www.twi-dl.net/rank.php" data-filter="v\.php\?video=">twi-dl ランキング</option>
-    <option value="https://www.nukistream.com/category.php?id=41" data-filter="video\.php\?id=">ヌキストリーム</option>
-    <option value="https://twihub.link/posts" data-filter="posts/[0-9a-f]{8}-">twihub</option>
-    <option value="https://monsnodes.com/">monsnode</option>
-    <option value="https://monsnodes.com/">monsnodes</option>
-  </select>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.31</span></h1>
+  <div id="presetWrap">
+    <button id="presetBtn" type="button">プリセット ▾</button>
+    <div id="presetGrid" hidden></div>
+  </div>
   <input id="url" type="url" placeholder="記事一覧ページのURL">
   <label>ページ数 <input id="pages" type="number" min="1" max="50" value="3" style="width:64px"></label>
   <input id="filter" placeholder="記事URLの正規表現（任意）" style="flex:0 1 200px; min-width:0">
@@ -139,10 +137,56 @@ let ytApiReady = false;
 
 window.onYouTubeIframeAPIReady = () => { ytApiReady = true; };
 
-$('preset').onchange = (e) => {
-  const o = e.target.selectedOptions[0];
-  if (o.value) { $('url').value = o.value; $('filter').value = o.dataset.filter || ''; }
-};
+// プリセット一覧。filter は記事URLの絞り込み正規表現（従来の data-filter 相当）
+const PRESETS = [
+  { label: 'ToxicStream', url: 'https://toxicstream.com/category/ero/' },
+  { label: 'おなりずむ', url: 'https://onalism.com/' },
+  { label: 'ポッカキット', url: 'https://www.po-kaki-to.com/archives' },
+  { label: '露出羞恥に魅せられて', url: 'https://roshutu-shuuti.net/' },
+  { label: 'twi-dl ランキング', url: 'https://www.twi-dl.net/rank.php', filter: 'v\\.php\\?video=' },
+  { label: 'ヌキストリーム', url: 'https://www.nukistream.com/category.php?id=41', filter: 'video\\.php\\?id=' },
+  { label: 'monsnode', url: 'https://monsnodes.com/' },
+  { label: 'monsnode 24時間', url: 'https://monsnode.com/?ranking=1&period=24h' },
+  { label: 'monsnode 3日', url: 'https://monsnode.com/?ranking=1&period=3d' },
+  { label: 'monsnode 7日', url: 'https://monsnode.com/?ranking=1&period=7d' },
+  { label: 'monsnodes 急上昇', url: 'https://monsnodes.com/?sort=m' },
+  { label: 'monsnodes 新着', url: 'https://monsnodes.com/?sort=n' },
+  { label: 'monsnodes 人気', url: 'https://monsnodes.com/?sort=p' },
+  { label: 'twihub リアルタイム', url: 'https://twihub.link/posts?type=realtime', filter: 'posts/[0-9a-f]{8}-' },
+  { label: 'twihub 30日', url: 'https://twihub.link/posts?type=30d', filter: 'posts/[0-9a-f]{8}-' },
+  { label: 'twihub 7日', url: 'https://twihub.link/posts?type=7d', filter: 'posts/[0-9a-f]{8}-' },
+  { label: 'twihub 1日', url: 'https://twihub.link/posts?type=1d', filter: 'posts/[0-9a-f]{8}-' },
+];
+
+(function initPresets() {
+  const grid = $('presetGrid');
+  for (const p of PRESETS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pcard';
+    const domain = new URL(p.url).hostname;
+    const img = document.createElement('img');
+    img.src = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.onerror = () => { img.style.visibility = 'hidden'; };
+    const label = document.createElement('span');
+    label.textContent = p.label;
+    b.title = p.url;
+    b.append(img, label);
+    b.onclick = () => {
+      $('url').value = p.url;
+      $('filter').value = p.filter || '';
+      grid.hidden = true;
+    };
+    grid.appendChild(b);
+  }
+  $('presetBtn').onclick = (e) => { e.stopPropagation(); grid.hidden = !grid.hidden; };
+  document.addEventListener('click', (e) => {
+    if (!grid.hidden && !e.target.closest('#presetWrap')) grid.hidden = true;
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') grid.hidden = true; });
+})();
 
 function setStatus(s) { $('status').textContent = s; }
 
