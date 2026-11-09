@@ -90,7 +90,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.40</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.41</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">プリセット ▾</button>
     <div id="presetGrid" hidden></div>
@@ -144,6 +144,7 @@ let reachedEnd = false;
 let loadFinished = false;
 // 再生設定の初期値。各スロットは生成時にこれを引き継ぐ
 const prefs = { volume: 100, muted: false, rate: 1 };
+let urlTimer = null;      // ?st= URL更新のデバウンス用
 let osdTimer = null;
 let ytApiReady = false;
 
@@ -322,6 +323,7 @@ async function setMultiCount(n) {
   }
   pump();
   updateFocus();
+  scheduleUrlUpdate();
 }
 
 function updateFocus() {
@@ -416,6 +418,7 @@ function slotLoad(s, qi, resume = 0) {
   else s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
   renderQueue();
   updateNow();
+  scheduleUrlUpdate();
 }
 
 function slotPlayYoutube(s, v) {
@@ -536,6 +539,7 @@ function slotDone(s) {
   clearSlotMedia(s);
   renderQueue();
   pump();
+  scheduleUrlUpdate();
 }
 
 // キューの任意indexをそのスロットで再生する（リストクリック・B/N 用）
@@ -890,6 +894,7 @@ function applySlotPrefs(s) {
       if (playing) seekSlotBy(s, extra * dt);
     }, 500);
   }
+  scheduleUrlUpdate();
 }
 
 // ブラウザが音声付きの自動再生を止めたときは、ミュートなら許可されるのでミュートで再生し直す
@@ -992,10 +997,81 @@ $('scrCount').addEventListener('change', () => setMultiCount(+$('scrCount').valu
 
 setMultiCount(1);
 
+setMultiCount(1);
+
+// ---- 再生状態のURL保存・復元 ----
+// 同時再生数・各スロットの動画/再生位置/音量/速度を ?st= に保存し、
+// URL共有や再読み込みで同じ状態を復元できるようにする
+const b64u = (json) => btoa(String.fromCharCode(...new TextEncoder().encode(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = (b) => {
+  const s = b.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - b.length % 4) % 4);
+  return new TextDecoder().decode(Uint8Array.from(atob(s), (c) => c.charCodeAt(0)));
+};
+
+async function collectState() {
+  const st = { n: multiCount, g: [prefs.volume, prefs.muted ? 1 : 0, prefs.rate], v: [] };
+  for (const s of slots) {
+    if (s.qi < 0 || !s.video) { st.v.push(null); continue; }
+    const v = s.video;
+    st.v.push({
+      t: v.type, i: v.id, a: v.article || '',
+      p: Math.round((await slotPosition(s)) * 10) / 10,
+      vol: s.prefs.volume, m: s.prefs.muted ? 1 : 0, r: s.prefs.rate,
+    });
+  }
+  return st;
+}
+
+function scheduleUrlUpdate() {
+  clearTimeout(urlTimer);
+  urlTimer = setTimeout(async () => {
+    try {
+      const u = new URL(location.href);
+      u.searchParams.set('st', b64u(JSON.stringify(await collectState())));
+      history.replaceState(null, '', u);
+    } catch { /* 保存に失敗しても再生は続ける */ }
+  }, 800);
+}
+// 再生位置は逐次変わるので定期的にも保存する
+setInterval(scheduleUrlUpdate, 5000);
+
+async function restoreState() {
+  const b = new URLSearchParams(location.search).get('st');
+  if (!b) return false;
+  try {
+    const st = JSON.parse(unb64u(b));
+    if (!st || !Array.isArray(st.v)) return false;
+    if (Array.isArray(st.g)) { prefs.volume = st.g[0]; prefs.muted = !!st.g[1]; prefs.rate = st.g[2] || 1; }
+    await setMultiCount(st.n || st.v.length || 1);
+    // スロットに出ていた動画をキューに戻し、同じindexで再割当てする
+    const map = st.v.map((sv) => {
+      if (!sv || !sv.t || !sv.i) return -1;
+      queue.push({ type: sv.t, id: sv.i, article: sv.a || '', title: sv.a || '', thumb: null });
+      return queue.length - 1;
+    });
+    loadFinished = true;
+    st.v.forEach((sv, i) => {
+      if (sv && map[i] >= 0 && slots[i]) {
+        slots[i].prefs = { volume: sv.vol ?? 100, muted: !!sv.m, rate: sv.r || 1 };
+        slotLoad(slots[i], map[i], sv.p || 0);
+      }
+    });
+    pump();
+    renderQueue();
+    return true;
+  } catch (e) {
+    console.warn('状態の復元に失敗しました', e);
+    return false;
+  }
+}
+
 // ?url=<記事一覧URL>&pages=3&filter=... で開いたら、その一覧をすぐ読み込んで再生する
+// ?st= がある場合はそちらを優先する
 {
   const q = new URLSearchParams(location.search);
-  if (q.get('url')) {
+  if (q.get('st')) {
+    restoreState();
+  } else if (q.get('url')) {
     $('url').value = q.get('url');
     if (q.get('pages')) $('pages').value = q.get('pages');
     if (q.get('filter')) $('filter').value = q.get('filter');
