@@ -4,7 +4,12 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const MAX_PAGES = 50;
 
 export async function fetchHtml(url, init = {}) {
-  const res = await fetch(url, { ...init, headers: { 'User-Agent': UA, 'Accept-Language': 'ja,en;q=0.8', ...(init.headers || {}) }, redirect: 'follow' });
+  const headers = { 'User-Agent': UA, 'Accept-Language': 'ja,en;q=0.8', ...(init.headers || {}) };
+  // FC2動画は年齢確認Cookie(_ac=1)がないと一覧が年齢ゲートページになる
+  try {
+    if (/(^|\.)fc2\.com$/i.test(new URL(url).hostname) && !headers.Cookie) headers.Cookie = '_ac=1';
+  } catch { /* ignore */ }
+  const res = await fetch(url, { ...init, headers, redirect: 'follow' });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
   return res.text();
 }
@@ -225,6 +230,57 @@ export function extractList(html, baseUrl, filter) {
     }
     const filtered = filter ? vids.filter((l) => filter.test(l.url)) : vids;
     return { links: filtered, next: findNext(html, baseUrl) };
+  }
+  // eporner.com はサーバー描画。動画は /video-<id>/<slug>/ で、
+  // タイトルはカード内 img の alt、サムネイルは img の src。
+  // 同じURLにサムネイル用とタイトル用のリンクがあるので統合する。
+  // ページネーションは rel="next"（/cat/<cat>/<sub>/<N>/）
+  if (/(^|\.)eporner\.com$/i.test(base.host)) {
+    const byUrl = new Map();
+    for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']*\/video-[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      const url = absolutize(m[1], baseUrl);
+      if (!url) continue;
+      try {
+        const u = new URL(url);
+        if (u.host !== base.host || !/^\/video-[A-Za-z0-9]+\//.test(u.pathname)) continue;
+      } catch { continue; }
+      const imgTag = m[2].match(/<img\b[^>]*>/i);
+      const alt = imgTag && (imgTag[0].match(/\balt=["']([^"']*)["']/i) || [])[1];
+      const src = imgTag && (imgTag[0].match(/\bsrc=["']([^"']+)["']/i) || imgTag[0].match(/\bdata-src=["']([^"']+)["']/i));
+      const thumb = src && /^https?:/i.test(absolutize(src[1], baseUrl) || '') ? absolutize(src[1], baseUrl) : null;
+      const prev = byUrl.get(url);
+      const title = alt && alt.trim().length > (prev?.title || '').length ? alt.trim() : (prev?.title || '');
+      byUrl.set(url, { url, title, ...(prev?.thumb || thumb ? { thumb: prev?.thumb || thumb } : {}) });
+    }
+    let vids = [...byUrl.values()].filter((v) => v.title);
+    if (filter) vids = vids.filter((l) => filter.test(l.url));
+    return { links: vids, next: findNext(html, baseUrl) };
+  }
+  // video.fc2.com はサーバー描画。動画は /a/content/<id>。
+  // タイトルは .c-boxList-111_video_ttl リンクの文字/ title 属性、
+  // サムネイルは .c-image-101_image の background-image。
+  // サムネイルリンクとタイトルリンクが同じURLなので統合する
+  if (/(^|\.)video\.fc2\.com$/i.test(base.host)) {
+    const byUrl = new Map();
+    for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']*\/a\/content\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      const url = absolutize(m[1], baseUrl);
+      if (!url) continue;
+      try {
+        const u = new URL(url);
+        if (u.host !== base.host || !/\/a\/content\/[A-Za-z0-9]+\/?$/.test(u.pathname)) continue;
+      } catch { continue; }
+      const titleAttr = (m[0].match(/\btitle=["']([^"']+)["']/i) || [])[1];
+      const text = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const title = (titleAttr || text || '').trim();
+      const bg = m[2].match(/background-image\s*:\s*url\(['"]?([^'")]+)['"]?\)/i);
+      const thumb = bg && /^https?:/i.test(absolutize(bg[1], baseUrl) || '') ? absolutize(bg[1], baseUrl) : null;
+      const prev = byUrl.get(url);
+      const better = title && (!prev?.title || title.length > prev.title.length);
+      byUrl.set(url, { url, title: better ? title : (prev?.title || ''), ...(prev?.thumb || thumb ? { thumb: prev?.thumb || thumb } : {}) });
+    }
+    let vids = [...byUrl.values()].filter((v) => v.title);
+    if (filter) vids = vids.filter((l) => filter.test(l.url));
+    return { links: vids, next: findNext(html, baseUrl) };
   }
   if (!filter) {
     // 記事っぽいURL（日付・数字・articles 等）が多数あれば、それだけに絞る
@@ -520,6 +576,13 @@ export function extractVideos(html, pageUrl) {
       const u = hi?.[1] || lo?.[1];
       if (u) return [{ type: 'file', id: u }];
     }
+    // eporner は EP.video.player.vid/hash から /xhr/video/ API で mp4 を解決する。
+    // ここでは vid|hash を持つマーカーを返し、handleApi 側で非同期に解決する
+    if (/(^|\.)eporner\.com$/i.test(new URL(pageUrl).hostname)) {
+      const vid = text.match(/EP\.video\.player\.vid\s*=\s*'([^']+)'/)?.[1];
+      const hash = text.match(/EP\.video\.player\.hash\s*=\s*'([^']+)'/)?.[1];
+      if (vid && hash) return [{ type: 'eporner', id: `${vid}|${hash}` }];
+    }
   } catch { /* ignore */ }
 
   for (const m of text.matchAll(/(?:youtube(?:-nocookie)?\.com\/(?:embed\/|watch\?(?:[^"'\s]*&)?v=|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/g)) {
@@ -612,6 +675,73 @@ function checkUrl(u, allowedHosts) {
   return parsed.href;
 }
 
+// DMM動画 (video.dmm.co.jp) は Next.js 製で一覧HTMLにデータがない。
+// api.video.dmm.co.jp の GraphQL を直接叩く（年齢確認Cookieは不要）。
+// 再生できるのは各タイトルのサンプル動画（予告編）のみで、本編は有料
+const DMM_GQL = 'https://api.video.dmm.co.jp/graphql';
+async function dmmGraphql(query, variables) {
+  const res = await fetch(DMM_GQL, {
+    method: 'POST',
+    headers: { 'User-Agent': UA, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: dmm graphql`);
+  const j = await res.json();
+  if (j.errors?.length) throw new Error(j.errors[0].message);
+  return j.data;
+}
+const DMM_LIST_QUERY = `query($limit:Int!,$offset:Int,$floor:PPVFloor,$sort:ContentSearchPPVSort!,$queryWord:String,$filter:ContentSearchPPVFilterInput,$facetLimit:Int!,$excludeUndelivered:Boolean!){
+legacySearchPPV(limit:$limit,offset:$offset,floor:$floor,sort:$sort,queryWord:$queryWord,filter:$filter,facetLimit:$facetLimit,includeExplicit:true,excludeUndelivered:$excludeUndelivered){
+result{contents{id title packageImage{mediumUrl}} pageInfo{offset limit hasNext totalCount}}}}`;
+const DMM_CONTENT_QUERY = `query($id:ID!){ppvContent(id:$id){id title sample2DMovie{highestMovieUrl hlsMovieUrl}}}`;
+// サイトのクエリパラメータを GraphQL の変数に変換する
+function dmmListVariables(lu, offset, limit) {
+  const filter = {};
+  for (const [param, key] of [['series', 'seriesIds'], ['genre', 'genreIds'], ['actress', 'actressIds'], ['maker', 'makerIds'], ['label', 'labelIds'], ['tag', 'contentTagIds']]) {
+    const v = lu.searchParams.get(param);
+    if (v) filter[key] = { ids: String(v).split(',').map((s) => s.trim()).filter(Boolean).map((id) => ({ id })), op: 'AND' };
+  }
+  const alias = { rank: 'SALES_RANK_SCORE', review: 'REVIEW_RANK_SCORE', price: 'LOWEST_PRICE' };
+  const s = lu.searchParams.get('sort') || 'RELEASE_DATE';
+  return {
+    limit, offset,
+    floor: /amateur/.test(lu.pathname) ? 'AMATEUR' : 'AV',
+    sort: alias[s] || (/^[A-Z_]+$/.test(s) ? s : 'RELEASE_DATE'),
+    queryWord: lu.searchParams.get('keyword') || lu.searchParams.get('q') || null,
+    filter: Object.keys(filter).length ? filter : undefined,
+    facetLimit: 1, excludeUndelivered: false,
+  };
+}
+async function dmmList(url, pages, filterRe) {
+  const lu = new URL(url);
+  const all = [], seen = new Set();
+  const limit = 60;
+  let offset = Math.max(0, parseInt(lu.searchParams.get('offset') || '0', 10) || 0);
+  let fetched = 0, hasNext = true;
+  while (fetched < pages && hasNext) {
+    const data = await dmmGraphql(DMM_LIST_QUERY, dmmListVariables(lu, offset, limit));
+    fetched++;
+    const r = data.legacySearchPPV.result;
+    for (const c of r.contents) {
+      const link = `https://video.dmm.co.jp/av/detail/?cid=${encodeURIComponent(c.id)}`;
+      if (seen.has(link) || (filterRe && !filterRe.test(link))) continue;
+      seen.add(link);
+      all.push({ url: link, title: c.title || '', thumb: c.packageImage?.mediumUrl || null });
+    }
+    hasNext = !!r.pageInfo?.hasNext;
+    offset += limit;
+  }
+  // 続きは offset パラメータで表す（サイト側の page とは別管理）
+  let next = null;
+  if (hasNext) {
+    const nu = new URL(url);
+    nu.searchParams.set('offset', String(offset));
+    next = nu.href;
+  }
+  return { links: all, pagesFetched: fetched, next };
+}
+
 /**
  * /api/* のリクエストを処理する。API 以外のパスなら null を返す。
  * @param {URL} u リクエストURL
@@ -620,6 +750,26 @@ function checkUrl(u, allowedHosts) {
  */
 export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, allowedOrigins, headers } = {}) {
   try {
+    // eporner は Cloudflare Workers の IP ではスタブページ（title "."）しか返さない。
+    // 直接取得が実ページでなければ Jina Reader 経由で HTML を取り直す
+    const getPage = async (pageUrl) => {
+      const html = await get(pageUrl);
+      try {
+        if (!/(^|\.)eporner\.com$/i.test(new URL(pageUrl).hostname)) return html;
+        if (/EP\.video|\/video-[A-Za-z0-9]{6,}\//.test(html) && html.length > 20000) return html;
+      } catch { return html; }
+      try {
+        const r = await fetch(`https://r.jina.ai/${pageUrl}`, {
+          headers: { 'User-Agent': UA, 'X-Return-Format': 'html' },
+          signal: AbortSignal.timeout(30000),
+        });
+        if (r.ok) {
+          const t = await r.text();
+          if (t.length > html.length) return t;
+        }
+      } catch { /* Jina 失敗時は直接取得分を使う */ }
+      return html;
+    };
     if (u.pathname === '/api/list') {
       let url = checkUrl(u.searchParams.get('url'), allowedHosts);
       // YouTube の動画URLを一覧に入れた場合はその1本だけを返す
@@ -669,12 +819,20 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           return { status: 200, body: { links: all, pagesFetched: fetched, next } };
         }
       }
+      // video.dmm.co.jp は GraphQL API 駆動。/av/list/?series= 等のパラメータを
+      // legacySearchPPV の filter に変換し、offset でページングする
+      {
+        const lu = new URL(url);
+        if (/(^|\.)video\.dmm\.co\.jp$/i.test(lu.hostname) && /\/av\//.test(lu.pathname)) {
+          return { status: 200, body: await dmmList(url, pages, filter) };
+        }
+      }
       const all = [];
       const seen = new Set();
       const pageSeen = new Set([url]);
       let fetched = 0;
       while (url && fetched < pages) {
-        const html = await get(url);
+        const html = await getPage(url);
         fetched++;
         const { links, next } = extractList(html, url, filter);
         for (const l of links) if (!seen.has(l.url)) { seen.add(l.url); all.push(l); }
@@ -689,14 +847,29 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       // YouTube の動画URLはIDがURLに含まれるのでページ取得なしで返す
       const ytId = youtubeVideoId(url);
       if (ytId) return { status: 200, body: { title: '', videos: [{ type: 'youtube', id: ytId }] } };
-      const html = await get(url);
+      // DMM の詳細ページは年齢認証でHTMLが取れないため、GraphQL だけで完結させる
+      {
+        const du = new URL(url);
+        if (/(^|\.)video\.dmm\.co\.jp$/i.test(du.hostname)) {
+          const cid = du.searchParams.get('cid') || du.pathname.match(/([a-z]{2,5}\d{4,})/i)?.[1];
+          if (!cid) throw new Error('DMM のコンテンツIDがURLに含まれていません');
+          const data = await dmmGraphql(DMM_CONTENT_QUERY, { id: cid });
+          const c = data.ppvContent;
+          const sm = c?.sample2DMovie;
+          const videos = [];
+          if (sm?.highestMovieUrl) videos.push({ type: 'file', id: sm.highestMovieUrl });
+          else if (sm?.hlsMovieUrl) videos.push({ type: 'hls', id: `${u.origin}/api/hls?u=${encodeURIComponent(sm.hlsMovieUrl)}` });
+          return { status: 200, body: { title: c?.title || '', videos } };
+        }
+      }
+      const html = await getPage(url);
       let videos = extractVideos(html, url);
       // 記事内に埋め込みがなく外部動画サイトへのリンクだけの場合、リンク先ページから抽出する
       if (!videos.length) {
         const keys = new Set();
         for (const l of extractVideoLinks(html, url).slice(0, 3)) {
           try {
-            for (const v of extractVideos(await get(l), l)) {
+            for (const v of extractVideos(await getPage(l), l)) {
               const k = v.type + ':' + v.id;
               if (!keys.has(k)) { keys.add(k); videos.push(v); }
             }
@@ -742,6 +915,30 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         }
         if (!videos.length && embeds[0]) videos.push({ type: 'openload', id: embeds[0] });
       }
+      // video.fc2.com/a/content/<id> は videoplaylist API が署名付きHLSを返す。
+      // m3u8/セグメントの ts-hash は短命なので再生直前に毎回取り直す
+      if (!videos.length && /(^|\.)video\.fc2\.com$/i.test(new URL(url).hostname)) {
+        const cid = new URL(url).pathname.match(/\/a\/content\/([A-Za-z0-9]+)/)?.[1];
+        if (cid) {
+          try {
+            const r = await fetch(`https://video.fc2.com/a/api/v3/videoplaylist/${cid}?sh=1&fs=0`, {
+              headers: { 'User-Agent': UA, Cookie: '_ac=1' },
+              signal: AbortSignal.timeout(15000),
+            });
+            if (r.ok) {
+              const j = await r.json();
+              const pl = j.playlist || {};
+              const q = pl.hq || pl.nq || pl.lq || Object.values(pl)[0];
+              if (typeof q === 'string' && q.startsWith('/')) {
+                const nq = j.session?.nq || '';
+                // m3u8/セグメントは署名・ts-hash が短命で CORS も無いため /api/hls 経由にする
+                const m3u8 = `https://video.fc2.com${q}&nq=${nq}&pf=Win32&lg=ja&referrer=`;
+                videos.push({ type: 'hls', id: `${u.origin}/api/hls?u=${encodeURIComponent(m3u8)}` });
+              }
+            }
+          } catch { /* 取れなければ iframe フォールバック */ }
+        }
+      }
       // TokyoMotion の埋め込みは外部から操作できないが、embed ページに mp4 直リンクが書かれている。
       // 取れたら file に置き換えてシーク・速度・終了検知を効かせる
       await Promise.all(videos.map(async (v) => {
@@ -765,6 +962,31 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
             }
           } catch { /* 取れなければ iframe のまま */ }
         }
+        // eporner は vid|hash から /xhr/video/ API で画質別 mp4 を取る。
+        // hash は32桁hexを4分割して各8桁を36進数化したもの（vjs855.js の実装と同じ）
+        if (v.type === 'eporner') {
+          try {
+            const [vid, hash] = v.id.split('|');
+            if (vid && /^[0-9a-f]{32}$/i.test(hash || '')) {
+              const h36 = [0, 8, 16, 24].map((i) => parseInt(hash.substr(i, 8), 16).toString(36)).join('');
+              const domain = new URL(url).hostname;
+              const qs = new URLSearchParams({
+                hash: h36, domain, pixelRatio: '1', playerWidth: '1280', playerHeight: '720',
+                fallback: 'false', embed: 'false', supportedFormats: 'mp4', _: String(Date.now()),
+              });
+              const r = await fetch(`https://www.eporner.com/xhr/video/${vid}?${qs}`, {
+                headers: { 'User-Agent': UA, Referer: `https://${domain}/` },
+                signal: AbortSignal.timeout(15000),
+              });
+              if (r.ok) {
+                const j = await r.json();
+                const mp4s = j.sources?.mp4 || {};
+                const pick = Object.values(mp4s).find((s) => s.default) || Object.values(mp4s)[0];
+                if (pick?.src) Object.assign(v, { type: 'file', id: pick.src });
+              }
+            }
+          } catch { /* 取れなければこの動画はスキップされる */ }
+        }
       }));
       // twihub の /r/v/<id> は mp4 へ 302 する。ブラウザの <video> にリダイレクトを
       // 追わせると Referer 次第で video.twimg.com に 403 られることがあるため、
@@ -779,6 +1001,8 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           } catch { /* 解決失敗時は /r/v のまま */ }
         }
       }));
+      // eporner マーカーが解決できなかったものは再生不能なので除外
+      for (let i = videos.length - 1; i >= 0; i--) if (videos[i].type === 'eporner') videos.splice(i, 1);
       // Referer 必須の mp4 はプロキシ経由にする（ブラウザからは正しい Referer を送れないため）
       for (const v of videos) {
         if (v.type === 'file' && proxyTarget(v.id)) {
@@ -803,7 +1027,12 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         if (!origin || !allowedOrigins.includes(origin)) throw new Error('bad origin');
       }
       const range = headers?.get?.('range') || headers?.range;
-      const fwd = { 'User-Agent': UA, Referer: 'https://www.missav06.net/', ...(range ? { Range: range } : {}) };
+      // Referer は取得先ホストに合わせる（missav 系CDNは Origin を弾くため Referer 偽装、
+      // FC2 は動画ページの Referer を期待する）
+      const referer = /(^|\.)video\.fc2\.com$/i.test(t.hostname) ? 'https://video.fc2.com/'
+        : /(^|\.)dmm\.co\.jp$/i.test(t.hostname) ? 'https://video.dmm.co.jp/'
+        : 'https://www.missav06.net/';
+      const fwd = { 'User-Agent': UA, Referer: referer, ...(range ? { Range: range } : {}) };
       // surrit.com は Cloudflare で塞がれているが、同じパスが複数 CDN ドメインで配信される
       // （サイトの /jmpres/ が 302 で振り分けている先）。その場合は CDN ホストに付け替えて試す
       let candidates = [target];

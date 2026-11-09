@@ -92,7 +92,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.52</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.53</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -104,7 +104,7 @@
 </header>
 <main>
   <section>
-    <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="9" value="1" title="同時再生数（1-9）"><button id="scrPlus" title="画面を増やす">＋</button></span></div>
+    <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="9" value="4" title="同時再生数（1-9）"><button id="scrPlus" title="画面を増やす">＋</button></span></div>
     <div id="stageWrap"><div id="grid"></div><div id="osd"></div></div>
     <div id="info">
     <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
@@ -204,6 +204,15 @@ const PRESET_GROUPS = [
     { label: '急上昇', url: 'https://openload.mov/soaring/' },
     { label: '人気', url: 'https://openload.mov/popularity/' },
   ]},
+  { site: 'FC2動画', domain: 'video.fc2.com', siteUrl: 'https://video.fc2.com/', items: [
+    { label: '新着', url: 'https://video.fc2.com/a/search/video/?category_id=25' },
+  ]},
+  { site: 'EPORNER', domain: 'www.eporner.com', siteUrl: 'https://www.eporner.com/', items: [
+    { label: '野外・日本人', url: 'https://www.eporner.com/cat/outdoor/japanese/' },
+  ]},
+  { site: 'DMM動画', domain: 'video.dmm.co.jp', siteUrl: 'https://video.dmm.co.jp/', items: [
+    { label: 'シリーズ', url: 'https://video.dmm.co.jp/av/list/?series=4592558' },
+  ]},
   { site: 'twihub', domain: 'twihub.link', siteUrl: 'https://twihub.link/', items: [
     { label: 'リアルタイム', url: 'https://twihub.link/posts?type=realtime', filter: 'posts/[0-9a-f]{8}-' },
     { label: '30日', url: 'https://twihub.link/posts?type=30d', filter: 'posts/[0-9a-f]{8}-' },
@@ -273,7 +282,7 @@ function thumb(v) {
 // ---- 同時再生スロット ----
 // キューを上から順に各スロットへ割り当て、終わったスロットから次を再生する
 const slots = [];
-let multiCount = 1, focusIdx = 0;
+let multiCount = 4, focusIdx = 0;
 const fedSet = new Set();      // このセッションで割当済みのキューindex
 const playingIdx = new Set();  // 現在スロットが再生中のキューindex
 const colsFor = (n) => Math.ceil(Math.sqrt(n));
@@ -1045,9 +1054,7 @@ $('copyLink').onclick = async () => {
   }
 };
 
-setMultiCount(1);
-
-setMultiCount(1);
+setMultiCount(4);
 
 // ---- 再生状態のURL保存・復元 ----
 // 同時再生数・各スロットの動画/再生位置/音量/速度を ?st= に保存し、
