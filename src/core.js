@@ -341,10 +341,10 @@ function extractYouTubeList(html) {
   try { data = JSON.parse(html.slice(start, end)); } catch { return null; }
   const out = [], seen = new Set();
   const ID_RE = /^[A-Za-z0-9_-]{11}$/;
-  const push = (id, title, thumb) => {
+  const push = (id, title, thumb, url) => {
     if (!ID_RE.test(id || '') || seen.has(id)) return;
     seen.add(id);
-    out.push({ url: `https://www.youtube.com/watch?v=${id}`, title: title || '', ...(thumb ? { thumb } : {}) });
+    out.push({ url: url || `https://www.youtube.com/watch?v=${id}`, title: title || '', ...(thumb ? { thumb } : {}) });
   };
   const titleText = (t) => (t?.runs?.map((r) => r.text).join('') || t?.content || '');
   const walk = (node) => {
@@ -361,6 +361,16 @@ function extractYouTubeList(html) {
         || lv.contentImage?.thumbnailViewModel?.image;
       const srcs = img?.sources;
       push(lv.contentId, meta?.title?.content || '', srcs?.length ? srcs[srcs.length - 1].url : null);
+    }
+    // Shorts タブは shortsLockupViewModel 形式（reelWatchEndpoint にIDとサムネイル）
+    const sl = node.shortsLockupViewModel;
+    if (sl) {
+      const ep = sl.onTap?.innertubeCommand?.reelWatchEndpoint;
+      const srcs = sl.thumbnailViewModel?.thumbnailViewModel?.image?.sources
+        || sl.thumbnailViewModel?.image?.sources;
+      push(ep?.videoId, sl.overlayMetadata?.primaryText?.content || '',
+        srcs?.length ? srcs[srcs.length - 1].url : null,
+        ep?.videoId ? `https://www.youtube.com/shorts/${ep.videoId}` : null);
     }
     for (const k of Object.keys(node)) walk(node[k]);
   };
