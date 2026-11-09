@@ -718,7 +718,12 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         if (st) {
           try {
             const eid = st.match(/\/e\/([A-Za-z0-9]+)/)?.[1];
-            const ep = await get(`https://streamtape.com/e/${eid}`);
+            // Workers から streamtape が応答しないことがあるのでタイムアウトを付ける
+            const epRes = await fetch(`https://streamtape.com/e/${eid}`, {
+              headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(15000),
+            });
+            if (!epRes.ok) throw new Error(`HTTP ${epRes.status}`);
+            const ep = await epRes.text();
             // div内の平文 get_video はダミー（500を返す）。JSの結合式から復元したものを使う
             const candidates = streamtapeVideoPaths(ep);
             for (const gv of candidates) {
@@ -726,6 +731,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
                 const r = await fetch(`https://streamtape.com/${gv}`, {
                   redirect: 'follow',
                   headers: { 'User-Agent': UA, Referer: `https://streamtape.com/e/${eid}` },
+                  signal: AbortSignal.timeout(15000),
                 });
                 const final = r.url;
                 await r.body?.cancel?.();
