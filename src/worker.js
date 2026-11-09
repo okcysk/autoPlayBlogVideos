@@ -11,7 +11,7 @@ export default {
     const allowedHosts = list(env.ALLOWED_HOSTS);
     // 取得したページは Cloudflare のキャッシュに 5 分置く
     const get = (url) => fetchHtml(url, { cf: { cacheTtl: 300, cacheEverything: true } });
-    const api = await handleApi(u, { fetchHtml: get, allowedHosts, headers: request.headers });
+    const api = await handleApi(u, { fetchHtml: get, allowedHosts, allowedOrigins: list(env.ALLOWED_ORIGINS), headers: request.headers });
     if (api) {
       // GitHub Pages など別オリジンの画面から呼べるよう、許可したオリジンにだけ CORS ヘッダーを付ける
       const origin = request.headers.get('Origin');

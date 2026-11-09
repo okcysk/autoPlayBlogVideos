@@ -220,6 +220,19 @@ function unpackPacked(html) {
   return out;
 }
 
+// 新しい packer 形式: eval(function(p,a,c,k,e,d){...}('...',radix,count,'dict'.split('|'),0,{}))
+// トークンは count-1 〜 0 の 36 進表記で、辞書は出現順
+function unpackPackedEval(html) {
+  const m = html.match(/\}\('((?:[^'\\]|\\.)*)',(\d+),(\d+),'((?:[^'\\]|\\.)*)'\.split\('\|'\),\d+,\{[^}]*\}\)\)/);
+  if (!m) return null;
+  const k = unescapeJs(m[4]).split('|');
+  let out = unescapeJs(m[1]);
+  for (let i = +m[3] - 1; i >= 0; i--) {
+    if (k[i]) out = out.replace(new RegExp('\\b' + i.toString(36) + '\\b', 'g'), k[i]);
+  }
+  return out;
+}
+
 // go.php の `var a="...";var b="..."` + atob(atob(b)+atob(a)) 難読化リダイレクトを復号する
 function decodeAtobRedirect(html) {
   const a = html.match(/var a="([A-Za-z0-9+/=]+)"/)?.[1];
@@ -241,21 +254,27 @@ function decodeSingleAtob(html) {
   } catch { return null; }
 }
 
-// missav の動画ページは packer 難読化 JS に m3u8 URL を埋め込む。
-// サイトは /jmpres/<ホスト>/<パス> プロキシ経由で再生するので、その形に組み立てて返す
+// missav の動画ページは packer 難読化 JS に m3u8 URL（surrit.com）を埋め込む。
+// surrit.com 自体は Cloudflare で塞がれているが、同じパスが複数の CDN ドメイン
+// （サイトの /jmpres/ リダイレクト先）で配信されるため、/api/hls 側で CDN ホストに
+// 付け替えて取得する
 function missavHlsUrl(html) {
-  const jmpres = (html.match(/https:\/\/[a-zA-Z0-9.-]+\/jmpres\//) || [])[0];
-  const wrap = (u) => (jmpres ? jmpres + u.replace(/^https?:\/\//, '') : u);
   const pick = (text) => {
     const urls = [...text.matchAll(/https:\/\/[^'"\s]+?\.m3u8[^'"\s]*/g)].map((m) => m[0]);
     return urls.find((u) => /playlist\.m3u8/.test(u)) || urls[0] || null;
   };
   const direct = pick(html);
-  if (direct) return wrap(direct);
+  if (direct) return direct;
   for (const m of html.matchAll(/\}\('((?:[^'\\]|\\.)*)',(\d+),(\d+),'((?:[^'\\]|\\.)*)'\.split\('\|'\)/g)) {
     const dec = unpackPacked(m[0]);
     const u = dec && pick(dec);
-    if (u) return wrap(u);
+    if (u) return u;
+  }
+  // 新しい eval ラップ形式の packer（辞書トークンがそのまま 36 進 index）
+  for (const m of html.matchAll(/\}\('((?:[^'\\]|\\.)*)',\d+,\d+,'((?:[^'\\]|\\.)*)'\.split\('\|'\),\d+,\{[^}]*\}\)\)/g)) {
+    const dec = unpackPackedEval(m[0]);
+    const u = dec && pick(dec);
+    if (u) return u;
   }
   return null;
 }
@@ -374,7 +393,7 @@ function checkUrl(u, allowedHosts) {
  * @param {{ fetchHtml?: (url: string) => Promise<string>, allowedHosts?: string[], headers?: { get?: (k: string) => string | null, range?: string } }} opts
  * @returns {Promise<{ status: number, body: object, headers?: object, stream?: boolean } | null>}
  */
-export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, headers } = {}) {
+export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, allowedOrigins, headers } = {}) {
   try {
     if (u.pathname === '/api/list') {
       let url = checkUrl(u.searchParams.get('url'), allowedHosts);
@@ -503,6 +522,64 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
       const thumb = pageThumb(html, url);
       if (thumb) for (const v of videos) v.thumb = v.thumb || thumb;
       return { status: 200, body: { title: pageTitle(html), videos } };
+    }
+    if (u.pathname === '/api/hls') {
+      // missav 系の HLS CDN は Origin ヘッダー付きのリクエストを弾いて tip 画像を返すため、
+      // ブラウザの hls.js からは直接取れない。ここで Referer を付けて中継する。
+      // プレイリスト内の URI はこのエンドポイント経由の URL に書き換える
+      const target = u.searchParams.get('u') || '';
+      const t = new URL(target);
+      if (t.protocol !== 'https:') throw new Error('bad hls url');
+      // CDN のドメインは頻繁に変わるためホスト制限はかけられない。
+      // allowedOrigins が渡された場合は Origin ヘッダーを必須にして悪用を抑える
+      const origin = headers?.get?.('origin') || headers?.origin || headers?.Origin || '';
+      if (allowedOrigins?.length) {
+        if (!origin || !allowedOrigins.includes(origin)) throw new Error('bad origin');
+      }
+      const range = headers?.get?.('range') || headers?.range;
+      const fwd = { 'User-Agent': UA, Referer: 'https://www.missav06.net/', ...(range ? { Range: range } : {}) };
+      // surrit.com は Cloudflare で塞がれているが、同じパスが複数 CDN ドメインで配信される
+      // （サイトの /jmpres/ が 302 で振り分けている先）。その場合は CDN ホストに付け替えて試す
+      let candidates = [target];
+      if (/^(.+\.)?surrit\.com$/i.test(t.hostname)) {
+        candidates = [];
+        for (const d of ['vcsheaye.cc', 'vcmathe.com', 'vcjuligi.com', 'vckeepw.top']) {
+          for (const s of ['vsd998', 'vsd999']) candidates.push(`https://${s}.${d}${t.pathname}${t.search}`);
+        }
+      }
+      const playlistOut = (text, base) => {
+        const proxyUrl = (uri) => `${u.origin}/api/hls?u=${encodeURIComponent(new URL(uri, base).href)}`;
+        const rewritten = text.split('\n').map((line) => {
+          const s = line.trim();
+          if (!s) return line;
+          if (s.startsWith('#')) return line.replace(/URI="([^"]+)"/g, (m, uri) => `URI="${proxyUrl(uri)}"`);
+          return proxyUrl(s);
+        }).join('\n');
+        const body = new ReadableStream({
+          start(c) { c.enqueue(new TextEncoder().encode(rewritten)); c.close(); },
+        });
+        return { status: 200, headers: { 'Content-Type': 'application/vnd.apple.mpegurl; charset=utf-8' }, body, stream: true };
+      };
+      for (const c of candidates) {
+        try {
+          const up = await fetch(c, { redirect: 'follow', headers: fwd });
+          if (!up.ok) { await up.body?.cancel?.(); continue; }
+          const ctype = up.headers.get('content-type') || '';
+          const looksPlaylist = /\.m3u8($|\?)/i.test(new URL(c).pathname) || /mpegurl|m3u8/i.test(ctype);
+          if (looksPlaylist) {
+            const text = await up.text();
+            if (text.includes('#EXTM3U')) return playlistOut(text, up.url || c);
+            continue; // エラーページ等なら次のミラーを試す
+          }
+          const outHeaders = {};
+          for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+            const val = up.headers.get(k);
+            if (val) outHeaders[k] = val;
+          }
+          return { status: up.status, headers: outHeaders, body: up.body, stream: true };
+        } catch { /* 次のミラーを試す */ }
+      }
+      throw new Error('hls source not found');
     }
     if (u.pathname === '/api/proxy') {
       // Referer 必須サイトの動画を中継する。リダイレクトがあれば最終 URL を取ってから Range 付きで取り直す
