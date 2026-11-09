@@ -90,7 +90,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.38</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.39</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">プリセット ▾</button>
     <div id="presetGrid" hidden></div>
@@ -273,7 +273,7 @@ function makeSlot() {
     el._ipTimer = setTimeout(() => el.classList.remove('interactive'), 8000);
   });
   $('grid').appendChild(el);
-  return { el, stage, video: null, qi: -1, lastQi: -1, kind: null,
+  return { el, stage, video: null, qi: -1, lastQi: -1, kind: null, resumeTime: 0,
     prefs: { volume: prefs.volume, muted: prefs.muted, rate: 1 },
     yt: null, ytReady: false, ytPending: null, vimeo: null, videoEl: null, hls: null,
     embed: null, fallbackTimer: null, rateTimer: null };
@@ -283,17 +283,44 @@ function layoutGrid() {
   $('grid').style.setProperty('--cols', String(colsFor(slots.length)));
 }
 
-function setMultiCount(n) {
+// スロットが再生中の位置（秒）を取る。iframe 系は位置を取得できないので 0
+async function slotPosition(s) {
+  try {
+    if (s.kind === 'file' || s.kind === 'hls') return s.videoEl?.currentTime || 0;
+    if (s.kind === 'youtube' && s.yt && s.ytReady) return s.yt.getCurrentTime() || 0;
+    if (s.kind === 'vimeo' && s.vimeo) return (await s.vimeo.getCurrentTime()) || 0;
+  } catch { /* 取れなければ先頭から */ }
+  return 0;
+}
+
+async function setMultiCount(n) {
   n = Math.max(1, Math.min(9, Math.floor(n) || 1));
   if (n === multiCount && slots.length) return;
   multiCount = n;
   $('scrCount').textContent = n;
+  // 再生中スロットのキューindexと再生位置を退避し、作り直し後に同じ動画を再割当てする
+  const saved = await Promise.all(slots.map(async (s) => ({ qi: s.qi, pos: s.qi >= 0 ? await slotPosition(s) : 0 })));
+  for (const s of slots) clearSlotMedia(s);
   $('grid').innerHTML = '';
   slots.length = 0;
   for (let i = 0; i < n; i++) slots.push(makeSlot());
   layoutGrid();
   focusIdx = 0;
-  resetFeed();
+  const kept = new Set();
+  saved.forEach((sv, i) => {
+    if (i >= n || sv.qi < 0) return;
+    const v = queue[sv.qi];
+    if (!v || v.removed) return;
+    kept.add(sv.qi);
+    slotLoad(slots[i], sv.qi, sv.pos);
+  });
+  // 画面数を減らして外れた動画は未再生に戻し、あとで再生されるようにする
+  for (const sv of saved) {
+    if (sv.qi >= 0 && !kept.has(sv.qi) && playingIdx.has(sv.qi)) {
+      fedSet.delete(sv.qi); playingIdx.delete(sv.qi);
+    }
+  }
+  pump();
   updateFocus();
 }
 
@@ -372,13 +399,14 @@ function pump() {
   updateNow();
 }
 
-function slotLoad(s, qi) {
+function slotLoad(s, qi, resume = 0) {
   const v = queue[qi];
   if (!v) return;
   fedSet.add(qi); playingIdx.add(qi);
   s.qi = qi; s.lastQi = qi; s.video = v;
   clearSlotMedia(s);
   s.kind = v.type;
+  s.resumeTime = resume;
   if (v.type === 'youtube') slotPlayYoutube(s, v);
   else if (v.type === 'vimeo') slotPlayVimeo(s, v);
   else if (v.type === 'file') slotPlayFile(s, v);
@@ -406,6 +434,7 @@ function slotPlayYoutube(s, v) {
         s.ytReady = true;
         const pid = s.ytPending; s.ytPending = null;
         if (pid && pid !== v.id) e.target.loadVideoById(pid); else e.target.playVideo();
+        if (s.resumeTime > 0) { e.target.seekTo(s.resumeTime, true); s.resumeTime = 0; }
         applySlotPrefs(s);
       },
       onStateChange: (e) => {
@@ -426,12 +455,18 @@ function slotPlayVimeo(s, v) {
   const p = s.vimeo = new Vimeo.Player(f);
   p.on('ended', () => slotDone(s));
   p.on('error', () => slotDone(s));
-  p.ready().then(() => applySlotPrefs(s));
+  p.ready().then(() => {
+    if (s.resumeTime > 0) { p.setCurrentTime(s.resumeTime); s.resumeTime = 0; }
+    applySlotPrefs(s);
+  });
 }
 
 function slotPlayFile(s, v) {
   const el = s.videoEl = document.createElement('video');
-  el.onloadedmetadata = () => applySlotPrefs(s);
+  el.onloadedmetadata = () => {
+    if (s.resumeTime > 0) { el.currentTime = s.resumeTime; s.resumeTime = 0; }
+    applySlotPrefs(s);
+  };
   el.referrerPolicy = 'no-referrer';
   el.src = v.id; el.controls = true; el.autoplay = true; el.playsInline = true;
   el.onended = () => slotDone(s);
@@ -443,7 +478,10 @@ function slotPlayFile(s, v) {
 function slotPlayHls(s, v) {
   // HLS(m3u8) を hls.js で自前再生する。署名付きURLなので取得は /api/videos 時点のものを使う
   const el = s.videoEl = document.createElement('video');
-  el.onloadedmetadata = () => applySlotPrefs(s);
+  el.onloadedmetadata = () => {
+    if (s.resumeTime > 0) { el.currentTime = s.resumeTime; s.resumeTime = 0; }
+    applySlotPrefs(s);
+  };
   el.referrerPolicy = 'no-referrer';
   el.controls = true; el.autoplay = true; el.playsInline = true;
   el.onended = () => slotDone(s);
