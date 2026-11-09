@@ -152,6 +152,17 @@ function unpackPacked(html) {
   return out;
 }
 
+// go.php の `var a="...";var b="..."` + atob(atob(b)+atob(a)) 難読化リダイレクトを復号する
+function decodeAtobRedirect(html) {
+  const a = html.match(/var a="([A-Za-z0-9+/=]+)"/)?.[1];
+  const b = html.match(/var b="([A-Za-z0-9+/=]+)"/)?.[1];
+  if (!a || !b) return null;
+  try {
+    const url = atob(atob(b) + atob(a));
+    return /^https?:\/\//.test(url) ? url : null;
+  } catch { return null; }
+}
+
 // javynow のプレイヤーページから HLS(m3u8) の URL を取り出す。
 // URL は署名付き（key=/end=）で期限があるため、再生直前に毎回取り直す必要がある
 function javynowHlsUrl(html) {
@@ -263,6 +274,38 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
       const pages = Math.min(Math.max(parseInt(u.searchParams.get('pages') || '1', 10), 1), MAX_PAGES);
       const f = u.searchParams.get('filter');
       const filter = f ? new RegExp(f) : null;
+      // monsnodes.com は API 駆動のサイト。/api/list.php の JSON を記事リンクに変換する
+      {
+        const lu = new URL(url);
+        if (/^monsnodes?\.com$/i.test(lu.hostname)) {
+          const isApi = lu.pathname.startsWith('/api/list.php');
+          const apiBase = `https://${lu.host}/api/list.php`;
+          const token = isApi ? (lu.searchParams.get('t') || 'bQ') : 'bQ';
+          let page = isApi ? Math.max(1, parseInt(lu.searchParams.get('page') || '1', 10)) : 1;
+          const all = [], seen = new Set();
+          let fetched = 0, totalPages = page;
+          while (fetched < pages) {
+            const res = await fetch(`${apiBase}?t=${encodeURIComponent(token)}&page=${page}`, {
+              headers: { 'User-Agent': UA, 'X-Requested-With': 'fetch' },
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}: ${apiBase}`);
+            const data = await res.json();
+            fetched++;
+            for (const it of data.items || []) {
+              const link = `https://${lu.host}/api/go.php?d=${it.disp_id}&s=${it.sig}&t=video`;
+              if (!seen.has(link)) {
+                seen.add(link);
+                all.push({ url: link, title: it.ex_user || '', thumb: it.thumb_url || null });
+              }
+            }
+            totalPages = data.total_pages || page;
+            page++;
+            if (page > totalPages) break;
+          }
+          const next = page <= totalPages ? `${apiBase}?t=${encodeURIComponent(token)}&page=${page}` : null;
+          return { status: 200, body: { links: all, pagesFetched: fetched, next } };
+        }
+      }
       const all = [];
       const seen = new Set();
       const pageSeen = new Set([url]);
@@ -293,6 +336,11 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, h
             }
           } catch { /* リンク先が取れなくても他を試す */ }
         }
+      }
+      // monsnodes の /api/go.php は atob 難読化ページで、復号すると video.twimg.com の mp4 直リンクになる
+      if (!videos.length && /monsnodes?\.com$/i.test(new URL(url).hostname)) {
+        const m = decodeAtobRedirect(html);
+        if (m) videos.push({ type: 'file', id: m });
       }
       // TokyoMotion の埋め込みは外部から操作できないが、embed ページに mp4 直リンクが書かれている。
       // 取れたら file に置き換えてシーク・速度・終了検知を効かせる
