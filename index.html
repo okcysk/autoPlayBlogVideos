@@ -90,7 +90,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.42</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.43</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">プリセット ▾</button>
     <div id="presetGrid" hidden></div>
@@ -736,7 +736,9 @@ $('start').onclick = async () => {
             const key = v.type + ':' + v.id;
             if (seenVideos.has(key)) continue;
             seenVideos.add(key);
-            queue.push({ ...v, thumb: v.thumb || l.thumb, title: title || l.title, article: l.url });
+            // 記事ページが「Link to external site」のような中継ページの場合は一覧側のタイトルを使う
+            const pt = title && !/^link to external site/i.test(title.trim()) ? title : l.title;
+            queue.push({ ...v, thumb: v.thumb || l.thumb, title: pt || '', article: l.url });
             pump();
           }
         } catch (e) { console.warn(l.url, e); }
