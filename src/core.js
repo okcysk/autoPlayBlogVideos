@@ -147,6 +147,21 @@ export function extractList(html, baseUrl, filter) {
   return { links, next: findNext(html, baseUrl) };
 }
 
+// YouTube の動画URLから videoId を取り出す。watch ページは取得時に
+// レート制限(429)されやすいため、動画URLならページを取らずに済ませる
+function youtubeVideoId(u) {
+  try {
+    const url = new URL(u);
+    const h = url.hostname.replace(/^(www|m|music)\./, '');
+    if (!/(^|\.)youtube\.com$|^youtu\.be$/.test(h)) return null;
+    const v = url.searchParams.get('v');
+    if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
+    const m = url.pathname.match(/^\/(?:shorts|live|embed|v)\/([A-Za-z0-9_-]{11})/)
+      || (h === 'youtu.be' && url.pathname.match(/^\/([A-Za-z0-9_-]{11})/));
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+
 function findNext(html, baseUrl) {
   const pats = [
     /<link\b[^>]*rel=["']next["'][^>]*href=["']([^"']+)["']/i,
@@ -460,6 +475,11 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
   try {
     if (u.pathname === '/api/list') {
       let url = checkUrl(u.searchParams.get('url'), allowedHosts);
+      // YouTube の動画URLを一覧に入れた場合はその1本だけを返す
+      const ytSingle = youtubeVideoId(url);
+      if (ytSingle) {
+        return { status: 200, body: { links: [{ url, title: '', thumb: null }], pagesFetched: 0, next: null } };
+      }
       const pages = Math.min(Math.max(parseInt(u.searchParams.get('pages') || '1', 10), 1), MAX_PAGES);
       const f = u.searchParams.get('filter');
       const filter = f ? new RegExp(f) : null;
@@ -519,6 +539,9 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
     }
     if (u.pathname === '/api/videos') {
       const url = checkUrl(u.searchParams.get('url'), allowedHosts);
+      // YouTube の動画URLはIDがURLに含まれるのでページ取得なしで返す
+      const ytId = youtubeVideoId(url);
+      if (ytId) return { status: 200, body: { title: '', videos: [{ type: 'youtube', id: ytId }] } };
       const html = await get(url);
       let videos = extractVideos(html, url);
       // 記事内に埋め込みがなく外部動画サイトへのリンクだけの場合、リンク先ページから抽出する
