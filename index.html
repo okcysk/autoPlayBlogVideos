@@ -58,6 +58,10 @@
   li .del { flex:none; align-self:flex-start; background:none; border:none; color:var(--muted); font-size:15px; padding:0 4px; cursor:pointer; }
   li .del:hover { color:#ff7b7b; }
   #osd { position:absolute; inset:auto auto 16px 16px; width:auto; height:auto; padding:6px 12px; background:rgba(0,0,0,.75); color:#fff; border-radius:6px; font-size:15px; pointer-events:none; opacity:0; transition:opacity .3s; z-index:2; }
+  #screenCtl { position:absolute; top:8px; right:8px; z-index:6; display:flex; align-items:center; gap:2px; background:rgba(0,0,0,.6); border-radius:6px; padding:2px; }
+  #screenCtl button { background:none; border:none; color:#fff; font-size:16px; padding:2px 8px; cursor:pointer; border-radius:4px; }
+  #screenCtl button:hover { background:rgba(255,255,255,.15); }
+  #scrCount { color:#fff; font-size:12px; min-width:14px; text-align:center; }
   #osd.show { opacity:1; }
   #keys { color:var(--muted); font-size:12px; margin-top:4px; }
   #keys kbd { background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 5px; font:inherit; }
@@ -85,7 +89,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>記事動画オートプレイヤー <span class="ver">v0.1.34</span></h1>
+  <h1>記事動画オートプレイヤー <span class="ver">v0.1.35</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">プリセット ▾</button>
     <div id="presetGrid" hidden></div>
@@ -97,7 +101,7 @@
 </header>
 <main>
   <section>
-    <div id="stageWrap"><div id="grid"></div><div id="osd"></div></div>
+    <div id="stageWrap"><div id="grid"></div><div id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><span id="scrCount">1</span><button id="scrPlus" title="画面を増やす">＋</button></div><div id="osd"></div></div>
     <div id="info">
     <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
     <div class="controls">
@@ -160,6 +164,7 @@ const PRESET_GROUPS = [
   ]},
   { site: 'twi-dl', domain: 'www.twi-dl.net', siteUrl: 'https://www.twi-dl.net/', items: [
     { label: 'ランキング', url: 'https://www.twi-dl.net/rank.php', filter: 'v\\.php\\?video=' },
+    { label: '保存動画', url: 'https://www.twi-dl.net/hozon.php', filter: 'v\\.php\\?video=' },
   ]},
   { site: 'ヌキストリーム', domain: 'www.nukistream.com', siteUrl: 'https://www.nukistream.com/', items: [
     { label: '動画一覧', url: 'https://www.nukistream.com/category.php?id=41', filter: 'video\\.php\\?id=' },
@@ -177,6 +182,7 @@ const PRESET_GROUPS = [
   ]},
   { site: 'missav', domain: 'missav.ws', siteUrl: 'https://missav.ws/', items: [
     { label: 'イメージビデオ', url: 'https://missav.ws/dm876/ja/genres/%E3%82%A4%E3%83%A1%E3%83%BC%E3%82%B8%E3%83%93%E3%83%87%E3%82%AA' },
+    { label: '野外・露出', url: 'https://missav.ws/dm399/ja/genres/%E9%87%8E%E5%A4%96%E3%83%BB%E9%9C%B2%E5%87%BA' },
   ]},
   { site: 'twihub', domain: 'twihub.link', siteUrl: 'https://twihub.link/', items: [
     { label: 'リアルタイム', url: 'https://twihub.link/posts?type=realtime', filter: 'posts/[0-9a-f]{8}-' },
@@ -279,6 +285,7 @@ function setMultiCount(n) {
   n = Math.max(1, Math.min(9, Math.floor(n) || 1));
   if (n === multiCount && slots.length) return;
   multiCount = n;
+  $('scrCount').textContent = n;
   $('grid').innerHTML = '';
   slots.length = 0;
   for (let i = 0; i < n; i++) slots.push(makeSlot());
@@ -933,6 +940,8 @@ setInterval(() => {
 
 $('next').onclick = () => skipSlot(focusSlot());
 $('prev').onclick = () => prevSlot(focusSlot());
+$('scrMinus').onclick = () => setMultiCount(multiCount - 1);
+$('scrPlus').onclick = () => setMultiCount(multiCount + 1);
 
 setMultiCount(1);
 
