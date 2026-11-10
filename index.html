@@ -3,7 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>記事動画オートプレイヤー</title>
+<title>動画サイト複数再生 - ブログ記事の動画をまとめて連続再生・複数画面で同時再生する無料ツール</title>
+<meta name="description" content="記事一覧ページのURLを入れるだけで、FC2動画・DMM動画・xvideo-jp・openload・missav・twihub などの動画サイトから動画を自動で抽出し、連続再生や複数画面での同時再生ができる無料ツール。キーボード操作・シャッフル・サムネイル表示に対応。">
+<meta name="keywords" content="動画 まとめて再生, 複数画面 同時再生, ブログ 動画 一括再生, 動画サイト 連続再生, FC2動画, DMM動画, missav, twihub">
+<meta property="og:title" content="動画サイト複数再生 - ブログ記事の動画をまとめて連続再生・複数画面で同時再生する無料ツール">
+<meta property="og:description" content="記事一覧ページのURLを入れるだけで、複数の動画サイトから動画を自動抽出し、連続再生・複数画面での同時再生ができる無料ツール。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://okcysk.github.io/autoPlayBlogVideos/">
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="https://okcysk.github.io/autoPlayBlogVideos/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "動画サイト複数再生",
+  "description": "記事一覧ページのURLから複数の動画サイトの動画を自動抽出し、連続再生・複数画面での同時再生ができる無料ツール。",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Web",
+  "url": "https://okcysk.github.io/autoPlayBlogVideos/",
+  "inLanguage": "ja"
+}
+</script>
 <style>
   :root { --bg:#111418; --panel:#1b2027; --line:#2c333d; --text:#e8ebef; --muted:#8a94a3; --accent:#4f9cf9; }
   * { box-sizing: border-box; }
@@ -82,6 +102,26 @@
   [data-admax-sticky-wrapper], [data-admax-sticky-wrapper] > div:first-child { display:contents !important; }
   /* 広告スクリプトが body を書き換えても高さが崩れないよう、アプリ全体を1つのコンテナにまとめる */
   #app { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; height:100dvh; }
+  /* ヘルプボタンはヘッダー右端 */
+  #helpBtn { margin-left:auto; flex:none; width:28px; height:28px; padding:0; border-radius:50%; font-weight:700; }
+  /* ヘルプモーダル */
+  #helpModal { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.6); }
+  #helpModal[hidden] { display:none; }
+  #helpBox { width:min(560px,92vw); max-height:80vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 20px; position:relative; }
+  #helpBox h2 { margin:0 0 10px; font-size:16px; }
+  #helpBox h3 { margin:14px 0 4px; font-size:13px; color:var(--accent); }
+  #helpBox p, #helpBox li { font-size:13px; color:var(--text); }
+  #helpBox ul { margin:4px 0; padding-left:20px; }
+  #helpClose { position:absolute; top:8px; right:10px; background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; padding:2px 6px; }
+  #helpClose:hover { color:var(--text); }
+  /* フッターのサービス説明文（折りたたみ） */
+  #about { flex:none; border-top:1px solid var(--line); padding:4px 16px 8px; }
+  #about summary { font-size:11px; color:var(--muted); cursor:pointer; }
+  #about summary:hover { color:var(--text); }
+  #about .aboutBody { font-size:11px; color:var(--muted); margin:6px 0 0; }
+  #about .aboutBody p { margin:0 0 6px; }
+  #about .aboutBody ul { margin:0; padding-left:16px; }
+  #about .aboutBody li { margin:0 0 2px; }
 </style>
 <meta name="google-site-verification" content="LyRfDuRUYksJZFUhuVmuxtJTpkZJOUPSd-Jtx4OINSE" />
 <script async src="https://adm.shinobi.jp/st/auto.js" data-admax-id="e9f2b72c45a21d3ae2ed4d9b1797bf35"></script>
@@ -90,7 +130,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.60</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.61</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -99,6 +139,7 @@
   <label>ページ数 <input id="pages" type="number" min="1" max="50" value="3" style="width:64px"></label>
   <input id="filter" placeholder="記事URLの正規表現（任意）" style="flex:0 1 200px; min-width:0">
   <button id="start" class="primary">読み込んで再生</button>
+  <button id="helpBtn" type="button" title="使い方">？</button>
 </header>
 <main>
   <section>
@@ -127,6 +168,52 @@
   <a href="mailto:okcysk@gmail.com">okcysk@gmail.com</a>
   <a href="https://x.com/okcysk46770" target="_blank" rel="noopener">X: @okcysk46770</a>
 </footer>
+<details id="about">
+  <summary>このツールについて</summary>
+  <div class="aboutBody">
+    <p>「動画サイト複数再生」は、ブログ記事や動画まとめサイトの一覧ページURLを入力するだけで、ページ内の記事から動画を自動で抽出し、連続再生や複数画面での同時再生ができる無料のブラウザツールです。FC2動画・DMM動画・xvideo-jp・openload・missav・twihub・twi-dl・ヌキストリーム・monsnode・monsnodes・ToxicStream・おなりずむ・ポッカキット・露出羞恥に魅せられて など、複数の動画サイトに対応しています。キーボードだけで再生・一時停止・シーク・音量・再生速度の操作ができ、シャッフル再生やサムネイル付きの再生キュー、URLを共有して同じ再生状態を再現する機能も備えています。</p>
+    <p>使い方は簡単です。対応サイトの一覧ページ（カテゴリ・検索結果・ランキングなど）のURLを入力欄に貼り付け、必要に応じてページ数と記事URLの絞り込み正規表現を指定して「読み込んで再生」を押すだけです。抽出された動画は自動で再生キューに追加され、再生が始まります。</p>
+    <ul>
+      <li>複数の動画サイトに対応（プリセットからワンクリックで読み込み）</li>
+      <li>同時再生数は画面上部の「−」「＋」または数字キー 1〜9 で変更</li>
+      <li>キーボード操作：WASDでフォーカス移動、Spaceで再生/停止、B/Nで前後の動画、↑↓で音量、Mでミュート、F/G/Hで再生速度</li>
+      <li>「リンクをコピー」で現在の再生状態をURLとして共有可能</li>
+      <li>iframe埋め込み型の動画は一部操作（シーク等）が制限される場合があります</li>
+    </ul>
+  </div>
+</details>
+</div>
+
+<div id="helpModal" hidden>
+  <div id="helpBox">
+    <button id="helpClose" type="button" title="閉じる">×</button>
+    <h2>使い方</h2>
+    <ol>
+      <li>対応サイトの<b>一覧ページURL</b>（カテゴリ・検索結果・ランキングなど）を入力欄に貼り付けます。</li>
+      <li>「ページ数」で読み込むページ数を選びます（初期値3。スクロールでさらに自動読み込みされます）。</li>
+      <li>必要なら「記事URLの正規表現」で対象を絞り込み、「読み込んで再生」を押します。</li>
+    </ol>
+    <p>動画は自動で抽出されて再生キューに追加され、順番に再生が始まります。</p>
+    <h3>対応サイト（プリセット）</h3>
+    <ul>
+      <li>ToxicStream / おなりずむ / ポッカキット / 露出羞恥に魅せられて</li>
+      <li>twi-dl / ヌキストリーム / monsnode / monsnodes</li>
+      <li>missav / xvideo-jp / openload</li>
+      <li>FC2動画 / DMM動画 / twihub</li>
+    </ul>
+    <h3>主な操作</h3>
+    <ul>
+      <li><b>1〜9</b>：同時再生数を変更　<b>WASD</b>：フォーカス移動</li>
+      <li><b>Space</b>：再生/停止　<b>B/N</b>：前後の動画　<b>Z/X</b>：5秒シーク　<b>C/V</b>：30秒シーク</li>
+      <li><b>↑/↓</b>：音量　<b>M</b>：ミュート　<b>F/G/H</b>：再生速度（等速/2.5倍/10倍）</li>
+      <li><b>Shift</b>併用で全画面に適用。「リンクをコピー」で再生状態をURL共有できます。</li>
+    </ul>
+    <h3>注意</h3>
+    <ul>
+      <li>埋め込み（iframe）型の動画はシーク・速度変更などの操作が効かない場合があります。その場合はセルをクリックすると埋め込みプレイヤーを直接操作できます。</li>
+      <li>DMM動画は各タイトルのサンプル動画（予告編）が対象です。本編は有料のため再生できません。</li>
+    </ul>
+  </div>
 </div>
 
 <script src="https://www.youtube.com/iframe_api"></script>
@@ -263,6 +350,15 @@ function selectPreset(p) {
     if (!grid.hidden && !e.target.closest('#presetWrap')) grid.hidden = true;
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') grid.hidden = true; });
+})();
+
+// 使い方ヘルプモーダル
+(function initHelp() {
+  const modal = $('helpModal');
+  $('helpBtn').onclick = () => { modal.hidden = false; };
+  $('helpClose').onclick = () => { modal.hidden = true; };
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) modal.hidden = true; });
 })();
 
 function setStatus(s) { $('status').textContent = s; }
@@ -1123,6 +1219,8 @@ const keyActions = {
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.target.closest('input, select, textarea')) return;
+  // ヘルプモーダル表示中は動画キー操作を止める（Escape はモーダル側で処理）
+  if (!$('helpModal').hidden) return;
   // プリセットカード上のボタンにフォーカスがあるときは Space/文字キーをカード操作に譲る
   if (e.target.closest('#presetGrid button')) return;
   // 数字キーで同時再生数を指定（1=シングル、2-9=同時再生）
