@@ -20,19 +20,18 @@
   main { flex:1; min-height:0; display:grid; grid-template-columns: minmax(0,1fr) 340px; gap:12px; padding:12px 16px; }
   section { display:flex; flex-direction:column; min-height:0; min-width:0; }
   #stageWrap { flex:1; min-height:0; position:relative; }
-  /* 同時再生スロットのグリッド。--cols で列数を指定 */
-  #grid { display:grid; gap:6px; width:100%; height:100%; grid-template-columns:repeat(var(--cols,1),minmax(0,1fr)); grid-auto-rows:minmax(0,1fr); }
-  .cell { position:relative; min-width:0; min-height:0; background:#000; border-radius:8px; overflow:hidden; }
-  /* フォーカス枠はセル全面を覆う動画要素より前面に描くため ::after で重ねる */
-  .cell::after { content:''; position:absolute; inset:0; border:2px solid transparent; border-radius:8px; pointer-events:none; z-index:5; }
-  .cell.focus::after { border-color:var(--accent); }
-  .cellStage { position:absolute; inset:0; }
+  /* 同時再生スロット。各 .cellStage はJSが矩形(left/top/w/h)を直接指定する。
+     縦型ペアは2つのステージを左右に並べて表現する */
+  #grid { position:relative; width:100%; height:100%; }
+  .cellStage { position:absolute; background:#000; border-radius:8px; overflow:hidden; }
   .cellStage > * { position:absolute; inset:0; width:100%; height:100%; border:0; }
   .cellStage video { object-fit:contain; }
+  /* フォーカス枠は単一要素をフォーカス中スロットの矩形に合わせて移動させる */
+  #focusRing { position:absolute; border:2px solid var(--accent); border-radius:8px; pointer-events:none; z-index:6; display:none; }
   /* 操作 API のないフォールバック iframe はクリックを透過させてキー入力を奪わせない。
-     セルをクリックすると .interactive が付き、一時的に iframe を操作できる */
+     ステージをクリックすると .interactive が付き、一時的に iframe を操作できる */
   .cellStage iframe.np { pointer-events:none; }
-  .cell.interactive .cellStage iframe.np { pointer-events:auto; }
+  .cellStage.interactive iframe.np { pointer-events:auto; }
   #info { flex:none; }
   #now { margin:8px 0 4px; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #now a { color:var(--accent); font-weight:normal; font-size:12px; margin-left:8px; }
@@ -43,9 +42,8 @@
   aside { min-height:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:auto; }
   @media (max-width: 900px) {
     main { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); padding:8px; gap:8px; }
-    #stageWrap { flex:none; }
-    #grid { height:auto; grid-auto-rows:auto; }
-    .cell { aspect-ratio:16/9; }
+    #stageWrap { flex:none; height:60vh; }
+    #grid { height:100%; }
     #keys, header h1 { display:none; }
     header { padding:8px; gap:6px; }
   }
@@ -92,7 +90,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.53</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.54</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -105,7 +103,7 @@
 <main>
   <section>
     <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="9" value="4" title="同時再生数（1-9）"><button id="scrPlus" title="画面を増やす">＋</button></span></div>
-    <div id="stageWrap"><div id="grid"></div><div id="osd"></div></div>
+    <div id="stageWrap"><div id="grid"></div><div id="focusRing"></div><div id="osd"></div></div>
     <div id="info">
     <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
     <div class="controls">
@@ -285,31 +283,136 @@ const slots = [];
 let multiCount = 4, focusIdx = 0;
 const fedSet = new Set();      // このセッションで割当済みのキューindex
 const playingIdx = new Set();  // 現在スロットが再生中のキューindex
-const colsFor = (n) => Math.ceil(Math.sqrt(n));
 const focusSlot = () => slots[focusIdx] || slots[0];
 
 function makeSlot() {
-  const el = document.createElement('div');
-  el.className = 'cell';
   const stage = document.createElement('div');
   stage.className = 'cellStage';
-  el.appendChild(stage);
-  // フォールバック iframe は普段クリックを透過するが、セルをクリックすると
+  // フォールバック iframe は普段クリックを透過するが、ステージをクリックすると
   // 8秒間だけ iframe 内を操作できる（自動再生がブロックされた時の再生ボタン用）
-  el.addEventListener('pointerdown', () => {
-    el.classList.add('interactive');
-    clearTimeout(el._ipTimer);
-    el._ipTimer = setTimeout(() => el.classList.remove('interactive'), 8000);
+  stage.addEventListener('pointerdown', () => {
+    stage.classList.add('interactive');
+    clearTimeout(stage._ipTimer);
+    stage._ipTimer = setTimeout(() => stage.classList.remove('interactive'), 8000);
   });
-  $('grid').appendChild(el);
-  return { el, stage, video: null, qi: -1, lastQi: -1, kind: null, resumeTime: 0,
+  return { stage, rect: null, video: null, qi: -1, lastQi: -1, kind: null, resumeTime: 0, orient: 'h',
     prefs: { volume: prefs.volume, muted: prefs.muted, rate: 1 },
     yt: null, ytReady: false, ytPending: null, vimeo: null, videoEl: null, hls: null,
     embed: null, fallbackTimer: null, rateTimer: null };
 }
 
-function layoutGrid() {
-  $('grid').style.setProperty('--cols', String(colsFor(slots.length)));
+// ---- レイアウト ----
+// 縦型動画を2本ずつペアにして領域を左右分割し、残りは矩形の再帰分割で配置する。
+// メディア要素は動かさず .cellStage の矩形だけを書き換えるため、
+// 再レイアウトで iframe 系プレイヤーがリロードされることはない
+const GAP = 3; // セル間の隙間(px)
+const rectCSS = (r) => ({
+  left: `calc(${r.x * 100}% + ${GAP}px)`, top: `calc(${r.y * 100}% + ${GAP}px)`,
+  width: `calc(${r.w * 100}% - ${GAP * 2}px)`, height: `calc(${r.h * 100}% - ${GAP * 2}px)`,
+});
+
+// 縦横判定は file/hls の loadedmetadata で確定。iframe 系は判定できないので横型扱い。
+// 判定結果はキュー項目にも保存し、スロット再構築や再読み込み後も引き継ぐ
+function slotPortrait(s) { return s.orient === 'v'; }
+
+function slotAspect(s) {
+  const el = s.videoEl;
+  if (el && el.videoWidth && el.videoHeight) return el.videoWidth / el.videoHeight;
+  return s.orient === 'v' ? 9 / 16 : 16 / 9;
+}
+
+function noteOrient(s) {
+  const el = s.videoEl;
+  if (!el || !el.videoWidth) return;
+  const o = el.videoWidth > el.videoHeight ? 'h' : 'v';
+  s.orient = o;
+  if (s.video) s.video.orient = o;
+  rebuildLayout();
+}
+
+// ペアは「縦型スロットをスロット順に2本ずつ」。奇数の余りは通常セル扱い。
+// レイアウトでは通常項目を先・ペアを後に並べ、ペア同士がまとまるようにする
+function buildItems() {
+  const por = slots.filter(slotPortrait);
+  const partner = new Map();
+  for (let i = 0; i + 1 < por.length; i += 2) {
+    partner.set(por[i], por[i + 1]);
+    partner.set(por[i + 1], por[i]);
+  }
+  const done = new Set(), singles = [], pairs = [];
+  for (const s of slots) {
+    const p = partner.get(s);
+    if (p) {
+      if (done.has(s)) continue;
+      done.add(s); done.add(p);
+      pairs.push({ type: 'pair', slots: [s, p] });
+    } else singles.push({ type: 'single', slots: [s] });
+  }
+  return singles.concat(pairs);
+}
+
+// 領域の目標アスペクト比。ペアは縦型2本を横に並べた形なので個別アスペクトの合計
+function itemAspect(it) {
+  return it.slots.reduce((a, s) => a + slotAspect(s), 0);
+}
+const groupAspect = (items) => items.reduce((a, it) => a + itemAspect(it), 0) / items.length;
+
+// 矩形を縦(左右)または横(上下)に分割する最適な切断位置を選ぶ。
+// 子領域の実現アスペクトが目標に近づく分割を貪欲に選び、個数が偏らない方を優先する
+function layoutItems(items, rect) {
+  if (!items.length) return;
+  if (items.length === 1) {
+    const it = items[0];
+    if (it.type === 'pair') {
+      const [a, b] = it.slots;
+      a.rect = { x: rect.x, y: rect.y, w: rect.w / 2, h: rect.h };
+      b.rect = { x: rect.x + rect.w / 2, y: rect.y, w: rect.w / 2, h: rect.h };
+    } else it.slots[0].rect = { ...rect };
+    return;
+  }
+  const pAsp = rect.w / rect.h, n = items.length;
+  let best = null;
+  for (let cut = 1; cut < n; cut++) {
+    const g1 = items.slice(0, cut), g2 = items.slice(cut);
+    const a1 = groupAspect(g1), a2 = groupAspect(g2);
+    for (const o of ['v', 'h']) {
+      // 'v'=左右分割, 'h'=上下分割。f は先頭グループが取る幅/高さの割合
+      let f, c1, c2;
+      if (o === 'v') { f = a1 / (a1 + a2); c1 = f * pAsp; c2 = (1 - f) * pAsp; }
+      else { f = a2 / (a1 + a2); c1 = pAsp / f; c2 = pAsp / (1 - f); }
+      const err = Math.abs(Math.log(c1 / a1)) + Math.abs(Math.log(c2 / a2));
+      const bal = Math.abs(2 * cut - n);
+      if (!best || err < best.err - 1e-9 || (Math.abs(err - best.err) < 1e-9 && bal < best.bal))
+        best = { o, cut, f, err, bal };
+    }
+  }
+  const g1 = items.slice(0, best.cut), g2 = items.slice(best.cut);
+  if (best.o === 'v') {
+    layoutItems(g1, { x: rect.x, y: rect.y, w: rect.w * best.f, h: rect.h });
+    layoutItems(g2, { x: rect.x + rect.w * best.f, y: rect.y, w: rect.w * (1 - best.f), h: rect.h });
+  } else {
+    layoutItems(g1, { x: rect.x, y: rect.y, w: rect.w, h: rect.h * best.f });
+    layoutItems(g2, { x: rect.x, y: rect.y + rect.h * best.f, w: rect.w, h: rect.h * (1 - best.f) });
+  }
+}
+
+let layoutTimer = null;
+function scheduleRelayout() {
+  clearTimeout(layoutTimer);
+  layoutTimer = setTimeout(rebuildLayout, 120);
+}
+
+function rebuildLayout() {
+  const grid = $('grid');
+  layoutItems(buildItems(), { x: 0, y: 0, w: 1, h: 1 });
+  for (const s of slots) {
+    // ステージは一度 grid に入れたら動かさない（iframe のリロード防止）。
+    // setMultiCount で innerHTML を消した直後だけ付け直す
+    if (s.stage.parentNode !== grid) grid.appendChild(s.stage);
+    const css = rectCSS(s.rect || { x: 0, y: 0, w: 1, h: 1 });
+    for (const k in css) s.stage.style[k] = css[k];
+  }
+  updateFocus();
 }
 
 // スロットが再生中の位置（秒）を取る。iframe 系は位置を取得できないので 0
@@ -333,7 +436,7 @@ async function setMultiCount(n) {
   $('grid').innerHTML = '';
   slots.length = 0;
   for (let i = 0; i < n; i++) slots.push(makeSlot());
-  layoutGrid();
+  rebuildLayout();
   focusIdx = 0;
   const kept = new Set();
   saved.forEach((sv, i) => {
@@ -355,13 +458,38 @@ async function setMultiCount(n) {
 }
 
 function updateFocus() {
-  slots.forEach((s, i) => s.el.classList.toggle('focus', i === focusIdx));
+  // フォーカス枠は単一要素をフォーカス中スロットの矩形に合わせる
+  const s = focusSlot(), ring = $('focusRing');
+  if (s && s.rect && s.stage.parentNode) {
+    ring.style.display = 'block';
+    const css = rectCSS(s.rect);
+    ring.style.left = css.left; ring.style.top = css.top;
+    ring.style.width = css.width; ring.style.height = css.height;
+  } else ring.style.display = 'none';
   updateNow();
 }
 
-function moveFocus(d) {
-  const i = Math.max(0, Math.min(slots.length - 1, focusIdx + d));
-  if (i !== focusIdx) { focusIdx = i; updateFocus(); }
+// 矩形レイアウトでは列数が一定でないため、フォーカス移動は
+// 各ステージの実座標から「その方向で最も近い」スロットを選ぶ
+function moveFocus(dir) {
+  const cur = focusSlot();
+  if (!cur || !cur.stage.parentNode) return;
+  const cr = cur.stage.getBoundingClientRect();
+  const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+  let best = null, bs = Infinity;
+  for (const s of slots) {
+    if (s === cur || !s.stage.parentNode) continue;
+    const r = s.stage.getBoundingClientRect();
+    const dx = r.left + r.width / 2 - cx, dy = r.top + r.height / 2 - cy;
+    const ok = dir === 'left' ? dx < -2 : dir === 'right' ? dx > 2 : dir === 'up' ? dy < -2 : dy > 2;
+    if (!ok) continue;
+    // 主軸方向の距離を優先し、直交方向のずれをペナルティにする
+    const primary = dir === 'left' || dir === 'right' ? Math.abs(dx) : Math.abs(dy);
+    const cross = dir === 'left' || dir === 'right' ? Math.abs(dy) : Math.abs(dx);
+    const score = primary + cross * 3;
+    if (score < bs) { bs = score; best = s; }
+  }
+  if (best) { focusIdx = slots.indexOf(best); updateFocus(); }
 }
 
 function updateNow() {
@@ -437,6 +565,8 @@ function slotLoad(s, qi, resume = 0) {
   clearSlotMedia(s);
   s.kind = v.type;
   s.resumeTime = resume;
+  // 前回の判定結果があれば即座に縦横を反映し、なければ横型として扱う
+  s.orient = v.orient || 'h';
   if (v.type === 'youtube') slotPlayYoutube(s, v);
   else if (v.type === 'vimeo') slotPlayVimeo(s, v);
   else if (v.type === 'file') slotPlayFile(s, v);
@@ -444,6 +574,7 @@ function slotLoad(s, qi, resume = 0) {
   else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow' || v.type === 'openload') slotPlayFrame(s, v);
   else if (embedAdapters[v.type]) slotPlayEmbed(s, v);
   else s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
+  scheduleRelayout();
   renderQueue();
   updateNow();
   scheduleUrlUpdate();
@@ -495,6 +626,7 @@ function slotPlayVimeo(s, v) {
 function slotPlayFile(s, v) {
   const el = s.videoEl = document.createElement('video');
   el.onloadedmetadata = () => {
+    noteOrient(s);
     if (s.resumeTime > 0) { el.currentTime = s.resumeTime; s.resumeTime = 0; }
     applySlotPrefs(s);
   };
@@ -510,6 +642,7 @@ function slotPlayHls(s, v) {
   // HLS(m3u8) を hls.js で自前再生する。署名付きURLなので取得は /api/videos 時点のものを使う
   const el = s.videoEl = document.createElement('video');
   el.onloadedmetadata = () => {
+    noteOrient(s);
     if (s.resumeTime > 0) { el.currentTime = s.resumeTime; s.resumeTime = 0; }
     applySlotPrefs(s);
   };
@@ -970,10 +1103,10 @@ const eachSlot = (all, fn) => { (all && slots.length ? slots : [focusSlot()]).fo
 
 const keyActions = {
   // WASD はフォーカス移動（Shift 併用でも移動）
-  w: () => moveFocus(-colsFor(slots.length)),
-  s: () => moveFocus(colsFor(slots.length)),
-  a: () => moveFocus(-1),
-  d: () => moveFocus(1),
+  w: () => moveFocus('up'),
+  s: () => moveFocus('down'),
+  a: () => moveFocus('left'),
+  d: () => moveFocus('right'),
   b: (all) => { if (all) slots.forEach(restartSlot); else prevSlot(focusSlot()); },
   n: (all) => { if (all) slots.forEach(skipSlot); else skipSlot(focusSlot()); },
   z: (all) => eachSlot(all, (s) => { seekSlotBy(s, -5); osd('⏪ 5秒'); }),
