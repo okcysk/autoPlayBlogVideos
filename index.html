@@ -94,7 +94,7 @@
   #keys kbd { background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 5px; font:inherit; }
   /* プリセット選択: サイトアイコン付きカードのグリッド。同一サイトの別ページはカード下半分にまとめる */
   #presetWrap { position:relative; }
-  #presetGrid { position:absolute; top:calc(100% + 6px); left:0; z-index:60; display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:8px; width:min(620px,92vw); max-height:55vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; box-shadow:0 8px 24px rgba(0,0,0,.5); }
+  #presetGrid { position:absolute; top:calc(100% + 6px); left:0; z-index:60; display:grid; grid-template-columns:repeat(5,1fr); gap:8px; width:min(820px,94vw); max-height:55vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; box-shadow:0 8px 24px rgba(0,0,0,.5); }
   #presetGrid[hidden] { display:none; }
   .pcard { display:flex; flex-direction:column; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
   .phead { display:flex; align-items:center; justify-content:center; gap:6px; padding:8px 4px; background:none; border:none; border-bottom:1px solid var(--line); color:var(--text); font-size:12px; font-weight:600; cursor:pointer; }
@@ -104,7 +104,7 @@
   .plink { background:none; border:none; border-bottom:1px solid var(--line); color:var(--muted); font-size:11px; padding:5px 4px; cursor:pointer; text-align:center; }
   .plink:last-child { border-bottom:none; }
   .plink:hover, .plink:focus-visible { color:var(--text); background:#232a33; outline:none; }
-  .pgroup { grid-column:1 / -1; font-size:11px; font-weight:700; color:var(--muted); letter-spacing:.05em; padding:4px 2px 0; }
+  .pgroup { grid-column:1 / -1; font-size:13px; font-weight:800; color:var(--accent); letter-spacing:.08em; padding:8px 2px 4px; border-bottom:1px solid var(--line); }
   /* Shinobi 広告が body 全体を包むラッパーを挿すので、レイアウトから除外して flex を維持する */
   [data-admax-sticky-wrapper], [data-admax-sticky-wrapper] > div:first-child { display:contents !important; }
   /* 広告スクリプトが body を書き換えても高さが崩れないよう、アプリ全体を1つのコンテナにまとめる */
@@ -138,9 +138,9 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.67</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.68</span></h1>
   <div id="presetWrap">
-    <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
+    <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
   </div>
   <input id="url" type="url" placeholder="記事一覧ページのURL">
@@ -298,24 +298,24 @@ const PRESET_GROUPS = [
     { label: '月間', url: 'https://xvideo-jp.com/?sort=month' },
     { label: '新着', url: 'https://xvideo-jp.com/' },
   ]},
-  { site: 'openload', domain: 'openload.mov', siteUrl: 'https://openload.mov/', group: '動画サイト', items: [
-    { label: '急上昇', url: 'https://openload.mov/soaring/' },
-    { label: '人気', url: 'https://openload.mov/popularity/' },
-  ]},
   { site: 'FC2動画', domain: 'video.fc2.com', siteUrl: 'https://video.fc2.com/', group: '動画サイト', items: [
     { label: '新着', url: 'https://video.fc2.com/a/search/video/?category_id=25' },
   ]},
   { site: 'DMM動画', domain: 'video.dmm.co.jp', siteUrl: 'https://video.dmm.co.jp/', group: '動画サイト', items: [
     { label: 'シリーズ', url: 'https://video.dmm.co.jp/av/list/?series=4592558' },
   ]},
-  { site: 'Pornhub', domain: 'www.pornhub.com', siteUrl: 'https://www.pornhub.com/', group: '動画サイト', items: [
-    { label: 'Japanese', url: 'https://www.pornhub.com/video?c=111' },
-    { label: '人気', url: 'https://www.pornhub.com/video?o=mv' },
-  ]},
   { site: 'TXXX', domain: 'txxx.com', siteUrl: 'https://txxx.com/', group: '動画サイト', items: [
     { label: 'Japanese', url: 'https://txxx.com/categories/japanese/' },
     { label: '人気', url: 'https://txxx.com/most-popular/' },
     { label: '新着', url: 'https://txxx.com/latest-updates/' },
+  ]},
+  { site: 'openload', domain: 'openload.mov', siteUrl: 'https://openload.mov/', group: '動画サイト', items: [
+    { label: '急上昇', url: 'https://openload.mov/soaring/' },
+    { label: '人気', url: 'https://openload.mov/popularity/' },
+  ]},
+  { site: 'Pornhub', domain: 'www.pornhub.com', siteUrl: 'https://www.pornhub.com/', group: '動画サイト', items: [
+    { label: 'Japanese', url: 'https://www.pornhub.com/video?c=111' },
+    { label: '人気', url: 'https://www.pornhub.com/video?o=mv' },
   ]},
   { site: 'Spankbang', domain: 'spankbang.com', siteUrl: 'https://okcysk.github.io/spankbangMultiPlayer/', group: 'その他', items: [
     { label: 'マルチプレイヤー', url: 'https://okcysk.github.io/spankbangMultiPlayer/', external: true },
