@@ -373,7 +373,7 @@ const PROXY_REFERERS = [
   [/^(.+\.)?po-kaki-to\.com$/i, 'https://www.po-kaki-to.com/'],
 ];
 // Referer を付けると 403 になる等、プロキシ経由にしたいが Referer は不要な配信元
-const PROXY_PLAIN = /(^|\.)(twimg\.com|twihub\.link|tapecontent\.net)$/i;
+const PROXY_PLAIN = /(^|\.)(twimg\.com|twihub\.link|tapecontent\.net|ahcdn\.com)$/i;
 function proxyReferer(url) {
   try {
     const host = new URL(url).hostname;
@@ -529,7 +529,7 @@ async function txxxList(pageUrl, pages) {
 }
 
 // TXXX の動画ページは /videos/<id>/<dir>/。API から mp4 直リンク（署名付き）を取る
-async function txxxVideos(url) {
+async function txxxVideos(url, apiOrigin) {
   const id = new URL(url).pathname.match(/\/videos\/(\d+)/)?.[1];
   if (!id) throw new Error('TXXX の動画IDがURLに含まれていません');
   const [vf, meta] = await Promise.all([
@@ -559,7 +559,8 @@ async function txxxVideos(url) {
     title: v.title || '',
     videos: [{
       type: 'file',
-      id: fileUrl,
+      // ahcdn は Origin/Referer 付きリクエストを 403 で弾くため Worker 経由にする
+      id: `${apiOrigin}/api/proxy?u=${encodeURIComponent(fileUrl)}`,
       ...(v.thumb ? { thumb: v.thumb } : {}),
     }],
   };
@@ -1029,7 +1030,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       }
       // TXXX は API だけで mp4 直リンクを解決する（HTML は JS シェル）
       if (/(^|\.)txxx\.com$/i.test(new URL(url).hostname)) {
-        return { status: 200, body: await txxxVideos(url) };
+        return { status: 200, body: await txxxVideos(url, u.origin) };
       }
       const html = await getPage(url);
       // Pornhub の動画ページは CDN の署名URLがIP紐付けでブラウザから取れないため、
