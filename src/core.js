@@ -566,6 +566,51 @@ async function txxxVideos(url, apiOrigin) {
   };
 }
 
+// Spankbanglive は Stripchat 系のライブ配信サイト。ページ自体は 406 で弾かれるが
+// /api/front/models の JSON が取れ、各モデルの hlsPlaylist（ライブHLS）を直接返せる。
+// 一覧アイテムの url は m3u8 そのもの（/api/videos 側で hls 型として返す）。
+// ライブ配信なので終了イベントは来ず、hls.js のライブ再生として残り続ける
+const SBL_PRIMARY_TAGS = new Set(['girls', 'men', 'trans', 'couples']);
+async function sblList(pageUrl, pages) {
+  const lu = new URL(pageUrl);
+  const host = lu.hostname;
+  const ptRaw = lu.searchParams.get('pt') || 'girls';
+  const pt = SBL_PRIMARY_TAGS.has(ptRaw) ? ptRaw : 'girls';
+  const limit = 60;
+  const offset0 = Math.max(0, parseInt(lu.searchParams.get('offset') || '0', 10) || 0);
+  const all = [];
+  const seen = new Set();
+  let fetched = 0;
+  let more = false;
+  for (let p = 0; p < pages; p++) {
+    const offset = offset0 + p * limit;
+    const r = await fetch(`https://${host}/api/front/models?primaryTag=${pt}&limit=${limit}&offset=${offset}`, {
+      headers: { 'User-Agent': UA, Referer: `https://${host}/`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) break;
+    const j = await r.json();
+    const models = j.models || [];
+    fetched++;
+    for (const m of models) {
+      const hls = m.hlsPlaylist;
+      if (!hls || !/^https:\/\//.test(hls) || seen.has(hls)) continue;
+      if (m.isOnline === false || m.broadcastSettings?.isBadStream) continue;
+      seen.add(hls);
+      const viewers = m.viewersCount ? ` ・ 視聴${m.viewersCount}` : '';
+      all.push({
+        url: hls,
+        title: `@${m.username || m.id}${viewers}`,
+        thumb: m.previewUrlThumbSmall || m.avatarUrl || undefined,
+      });
+    }
+    if (models.length < limit) { more = false; break; }
+    more = true;
+  }
+  const next = more ? `https://${host}/?offset=${offset0 + fetched * limit}${pt !== 'girls' ? `&pt=${pt}` : ''}` : null;
+  return { links: all, pagesFetched: fetched, next };
+}
+
 // openload.mov の動画ページは eval packer で難読化され、
 // ストリームホスト（minochinos/streamtape/vsembed 等）の iframe URL を生成する。
 // radix が 36 を超えるため e() をその場で再現する（unpackPackedEval は 36 進 index 前提で使えない）
@@ -992,6 +1037,12 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           if (filter) body.links = body.links.filter((l) => filter.test(l.url));
           return { status: 200, body };
         }
+        // Spankbanglive は直fetchが406で弾かれるが models API のJSONが取れる
+        if (/(^|\.)spankbanglive\.com$/i.test(lu.hostname)) {
+          const body = await sblList(url, pages);
+          if (filter) body.links = body.links.filter((l) => filter.test(l.url + ' ' + l.title));
+          return { status: 200, body };
+        }
       }
       const all = [];
       const seen = new Set();
@@ -1031,6 +1082,10 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       // TXXX は API だけで mp4 直リンクを解決する（HTML は JS シェル）
       if (/(^|\.)txxx\.com$/i.test(new URL(url).hostname)) {
         return { status: 200, body: await txxxVideos(url, u.origin) };
+      }
+      // 直リンクの m3u8（Spankbanglive のライブHLS等）はページを取らずそのまま hls.js に渡す
+      if (/\.m3u8(\?|$)/i.test(new URL(url).pathname)) {
+        return { status: 200, body: { title: '', videos: [{ type: 'hls', id: url }] } };
       }
       const html = await getPage(url);
       // Pornhub の動画ページは CDN の署名URLがIP紐付けでブラウザから取れないため、
