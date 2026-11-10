@@ -1005,13 +1005,25 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
                 }
                 return null; // HTMLのスタブページ等は弾く
               };
-              // Workers のIPでは eporner がブロックするので、だめなら Jina / 公開プロキシ経由で取り直す
-              let j = await getJson(apiUrl, { 'User-Agent': UA, Referer: `https://${domain}/` });
-              if (!j) j = await getJson(`https://r.jina.ai/${apiUrl}`, {
-                'User-Agent': UA, 'X-Return-Format': 'html',
-                ...(jinaKey ? { Authorization: `Bearer ${jinaKey}` } : {}),
+              // Workers のIPでは eporner がブロックするので、Jina / 公開プロキシ経由でも試す。
+              // 直接取得はタイムアウトまで待たされることがあるため、全経路を並行で走らせて
+              // 最初に有効なJSONが返ったものを採用する
+              const attempts = [
+                getJson(apiUrl, { 'User-Agent': UA, Referer: `https://${domain}/` }),
+                getJson(`https://r.jina.ai/${apiUrl}`, {
+                  'User-Agent': UA, 'X-Return-Format': 'html',
+                  ...(jinaKey ? { Authorization: `Bearer ${jinaKey}` } : {}),
+                }),
+                getJson(`https://api.cors.lol/?url=${encodeURIComponent(apiUrl)}`, { 'User-Agent': UA }),
+              ].map((p) => p.catch(() => null));
+              const j = await new Promise((resolve) => {
+                let pending = attempts.length;
+                for (const p of attempts) p.then((v) => {
+                  // code!==0（認証失敗など）は採用しない。有効なJSONを優先して待つ
+                  if (v && v.code === 0 && resolve) { const r = resolve; resolve = null; r(v); return; }
+                  if (--pending === 0 && resolve) { const r = resolve; resolve = null; r(v && v.code === 0 ? v : null); }
+                });
               });
-              if (!j) j = await getJson(`https://api.cors.lol/?url=${encodeURIComponent(apiUrl)}`, { 'User-Agent': UA });
               if (j && j.code === 0) {
                 const mp4s = j.sources?.mp4 || {};
                 const pick = Object.values(mp4s).find((s) => s.default) || Object.values(mp4s)[0];
