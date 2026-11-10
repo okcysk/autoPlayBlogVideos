@@ -20,7 +20,7 @@ async function cachedFetchHtml(url) {
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
-  const api = await handleApi(u, { fetchHtml: cachedFetchHtml, allowedHosts, headers: req.headers });
+  const api = await handleApi(u, { fetchHtml: cachedFetchHtml, allowedHosts, headers: req.headers, jinaKey: process.env.JINA_API_KEY });
   if (api) {
     if (api.stream) {
       res.writeHead(api.status, api.headers);

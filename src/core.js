@@ -748,19 +748,23 @@ async function dmmList(url, pages, filterRe) {
  * @param {{ fetchHtml?: (url: string) => Promise<string>, allowedHosts?: string[], headers?: { get?: (k: string) => string | null, range?: string } }} opts
  * @returns {Promise<{ status: number, body: object, headers?: object, stream?: boolean } | null>}
  */
-export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, allowedOrigins, headers } = {}) {
+export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, allowedOrigins, headers, jinaKey } = {}) {
   try {
     // eporner は Cloudflare Workers の IP ではスタブページ（title "."）しか返さない。
-    // 直接取得が実ページでなければ Jina Reader 経由で HTML を取り直す
+    // 直接取得が実ページでなければ Jina Reader / 公開CORSプロキシ経由で HTML を取り直す
     const getPage = async (pageUrl) => {
       const html = await get(pageUrl);
       try {
         if (!/(^|\.)eporner\.com$/i.test(new URL(pageUrl).hostname)) return html;
         if (/EP\.video|\/video-[A-Za-z0-9]{6,}\//.test(html) && html.length > 20000) return html;
       } catch { return html; }
+      // Jina Reader。APIキーがあれば Bearer 認証でレート制限を緩和できる
       try {
         const r = await fetch(`https://r.jina.ai/${pageUrl}`, {
-          headers: { 'User-Agent': UA, 'X-Return-Format': 'html' },
+          headers: {
+            'User-Agent': UA, 'X-Return-Format': 'html',
+            ...(jinaKey ? { Authorization: `Bearer ${jinaKey}` } : {}),
+          },
           signal: AbortSignal.timeout(30000),
         });
         if (r.ok) {
@@ -768,6 +772,17 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           if (t.length > html.length) return t;
         }
       } catch { /* Jina 失敗時は直接取得分を使う */ }
+      // Jina は Workers の共有IPでレート制限されやすいので、別系統の公開CORSプロキシも試す
+      try {
+        const r = await fetch(`https://api.cors.lol/?url=${encodeURIComponent(pageUrl)}`, {
+          headers: { 'User-Agent': UA },
+          signal: AbortSignal.timeout(30000),
+        });
+        if (r.ok) {
+          const t = await r.text();
+          if (t.length > html.length) return t;
+        }
+      } catch { /* cors.lol 失敗時は直接取得分を使う */ }
       return html;
     };
     if (u.pathname === '/api/list') {
@@ -974,12 +989,21 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
                 hash: h36, domain, pixelRatio: '1', playerWidth: '1280', playerHeight: '720',
                 fallback: 'false', embed: 'false', supportedFormats: 'mp4', _: String(Date.now()),
               });
-              const r = await fetch(`https://www.eporner.com/xhr/video/${vid}?${qs}`, {
-                headers: { 'User-Agent': UA, Referer: `https://${domain}/` },
-                signal: AbortSignal.timeout(15000),
+              const apiUrl = `https://www.eporner.com/xhr/video/${vid}?${qs}`;
+              const getJson = async (u, headers) => {
+                const r = await fetch(u, { headers, signal: AbortSignal.timeout(15000) });
+                if (!r.ok) return null;
+                const t = await r.text();
+                try { return JSON.parse(t); } catch { return null; } // HTMLのスタブページ等は弾く
+              };
+              // Workers のIPでは eporner がブロックするので、だめなら Jina / 公開プロキシ経由で取り直す
+              let j = await getJson(apiUrl, { 'User-Agent': UA, Referer: `https://${domain}/` });
+              if (!j) j = await getJson(`https://r.jina.ai/${apiUrl}`, {
+                'User-Agent': UA, 'X-Return-Format': 'html',
+                ...(jinaKey ? { Authorization: `Bearer ${jinaKey}` } : {}),
               });
-              if (r.ok) {
-                const j = await r.json();
+              if (!j) j = await getJson(`https://api.cors.lol/?url=${encodeURIComponent(apiUrl)}`, { 'User-Agent': UA });
+              if (j) {
                 const mp4s = j.sources?.mp4 || {};
                 const pick = Object.values(mp4s).find((s) => s.default) || Object.values(mp4s)[0];
                 if (pick?.src) Object.assign(v, { type: 'file', id: pick.src });
