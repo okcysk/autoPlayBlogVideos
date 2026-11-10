@@ -138,7 +138,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.68</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.69</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -151,7 +151,7 @@
 </header>
 <main>
   <section>
-    <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="9" value="4" title="同時再生数（1-9）"><button id="scrPlus" title="画面を増やす">＋</button></span></div>
+    <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="9" value="4" title="同時再生数（1-9）"><button id="scrPlus" title="画面を増やす">＋</button></span><button id="fsBtn" type="button" title="動画エリアを全画面化">⛶ 全画面</button></div>
     <div id="stageWrap"><div id="grid"></div><div id="focusRing"></div><div id="osd"></div></div>
     <div id="info">
     <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
@@ -1281,6 +1281,18 @@ $('prev').onclick = () => prevSlot(focusSlot());
 $('scrMinus').onclick = () => setMultiCount(multiCount - 1);
 $('scrPlus').onclick = () => setMultiCount(multiCount + 1);
 $('scrCount').addEventListener('change', () => setMultiCount(+$('scrCount').value || 1));
+
+// 動画エリア（#stageWrap）だけをブラウザ全画面にする。Esc で解除
+$('fsBtn').onclick = async () => {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await $('stageWrap').requestFullscreen();
+  } catch (e) { setStatus('全画面を開始できませんでした: ' + e.message); }
+};
+document.addEventListener('fullscreenchange', () => {
+  $('fsBtn').textContent = document.fullscreenElement ? '✕ 解除' : '⛶ 全画面';
+  scheduleRelayout();
+});
 
 // 現在のURLをコピーする。チェックを外すと ?st=（各動画の状態）を除いた
 // 一覧読み込み用リンク（url/pages/filter/n）だけになる
