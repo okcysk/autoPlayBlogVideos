@@ -104,6 +104,7 @@
   .plink { background:none; border:none; border-bottom:1px solid var(--line); color:var(--muted); font-size:11px; padding:5px 4px; cursor:pointer; text-align:center; }
   .plink:last-child { border-bottom:none; }
   .plink:hover, .plink:focus-visible { color:var(--text); background:#232a33; outline:none; }
+  .pgroup { grid-column:1 / -1; font-size:11px; font-weight:700; color:var(--muted); letter-spacing:.05em; padding:4px 2px 0; }
   /* Shinobi 広告が body 全体を包むラッパーを挿すので、レイアウトから除外して flex を維持する */
   [data-admax-sticky-wrapper], [data-admax-sticky-wrapper] > div:first-child { display:contents !important; }
   /* 広告スクリプトが body を書き換えても高さが崩れないよう、アプリ全体を1つのコンテナにまとめる */
@@ -137,7 +138,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.62</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.63</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -178,7 +179,7 @@
 <details id="about">
   <summary>このツールについて</summary>
   <div class="aboutBody">
-    <p>「動画サイト複数再生」は、ブログ記事や動画まとめサイトの一覧ページURLを入力するだけで、ページ内の記事から動画を自動で抽出し、連続再生や複数画面での同時再生ができる無料のブラウザツールです。FC2動画・DMM動画・xvideo-jp・openload・missav・twihub・twi-dl・ヌキストリーム・monsnode・monsnodes・ToxicStream・おなりずむ・ポッカキット・露出羞恥に魅せられて など、複数の動画サイトに対応しています。キーボードだけで再生・一時停止・シーク・音量・再生速度の操作ができ、シャッフル再生やサムネイル付きの再生キュー、URLを共有して同じ再生状態を再現する機能も備えています。</p>
+    <p>「動画サイト複数再生」は、ブログ記事や動画まとめサイトの一覧ページURLを入力するだけで、ページ内の記事から動画を自動で抽出し、連続再生や複数画面での同時再生ができる無料のブラウザツールです。FC2動画・DMM動画・xvideo-jp・openload・missav・Pornhub・TXXX・twihub・twi-dl・ヌキストリーム・monsnode・monsnodes・ToxicStream・おなりずむ・ポッカキット・露出羞恥に魅せられて など、複数の動画サイトに対応しています。キーボードだけで再生・一時停止・シーク・音量・再生速度の操作ができ、シャッフル再生やサムネイル付きの再生キュー、URLを共有して同じ再生状態を再現する機能も備えています。</p>
     <p>使い方は簡単です。対応サイトの一覧ページ（カテゴリ・検索結果・ランキングなど）のURLを入力欄に貼り付け、必要に応じてページ数と記事URLの絞り込み正規表現を指定して「読み込んで再生」を押すだけです。抽出された動画は自動で再生キューに追加され、再生が始まります。</p>
     <ul>
       <li>複数の動画サイトに対応（プリセットからワンクリックで読み込み）</li>
@@ -203,10 +204,9 @@
     <p>動画は自動で抽出されて再生キューに追加され、順番に再生が始まります。</p>
     <h3>対応サイト（プリセット）</h3>
     <ul>
-      <li>ToxicStream / おなりずむ / ポッカキット / 露出羞恥に魅せられて</li>
-      <li>twi-dl / ヌキストリーム / monsnode / monsnodes</li>
-      <li>missav / xvideo-jp / openload</li>
-      <li>FC2動画 / DMM動画 / twihub</li>
+      <li>動画サイト：missav / xvideo-jp / openload / FC2動画 / DMM動画 / Pornhub / TXXX</li>
+      <li>Twitter/X動画まとめ：ToxicStream / おなりずむ / ポッカキット / 露出羞恥に魅せられて</li>
+      <li>twi-dl / ヌキストリーム / monsnode / monsnodes / twihub</li>
     </ul>
     <h3>主な操作</h3>
     <ul>
@@ -253,56 +253,65 @@ window.onYouTubeIframeAPIReady = () => { ytApiReady = true; };
 // プリセット一覧。同一サイトの別ページは1カードにまとめ、下半分にリンクを並べる。
 // filter は記事URLの絞り込み正規表現（従来の data-filter 相当）
 const PRESET_GROUPS = [
-  { site: 'ToxicStream', domain: 'toxicstream.com', siteUrl: 'https://toxicstream.com/', items: [
+  { site: 'missav', domain: 'missav.ws', siteUrl: 'https://missav.ws/', group: '動画サイト', items: [
+    { label: 'イメージビデオ', url: 'https://missav.ws/dm876/ja/genres/%E3%82%A4%E3%83%A1%E3%83%BC%E3%82%B8%E3%83%93%E3%83%87%E3%82%AA' },
+    { label: '野外・露出', url: 'https://missav.ws/dm399/ja/genres/%E9%87%8E%E5%A4%96%E3%83%BB%E9%9C%B2%E5%87%BA' },
+  ]},
+  { site: 'xvideo-jp', domain: 'xvideo-jp.com', siteUrl: 'https://xvideo-jp.com/', group: '動画サイト', items: [
+    { label: '週間', url: 'https://xvideo-jp.com/?sort=week' },
+    { label: '月間', url: 'https://xvideo-jp.com/?sort=month' },
+    { label: '新着', url: 'https://xvideo-jp.com/' },
+  ]},
+  { site: 'openload', domain: 'openload.mov', siteUrl: 'https://openload.mov/', group: '動画サイト', items: [
+    { label: '急上昇', url: 'https://openload.mov/soaring/' },
+    { label: '人気', url: 'https://openload.mov/popularity/' },
+  ]},
+  { site: 'FC2動画', domain: 'video.fc2.com', siteUrl: 'https://video.fc2.com/', group: '動画サイト', items: [
+    { label: '新着', url: 'https://video.fc2.com/a/search/video/?category_id=25' },
+  ]},
+  { site: 'DMM動画', domain: 'video.dmm.co.jp', siteUrl: 'https://video.dmm.co.jp/', group: '動画サイト', items: [
+    { label: 'シリーズ', url: 'https://video.dmm.co.jp/av/list/?series=4592558' },
+  ]},
+  { site: 'Pornhub', domain: 'www.pornhub.com', siteUrl: 'https://www.pornhub.com/', group: '動画サイト', items: [
+    { label: 'Japanese', url: 'https://www.pornhub.com/video?c=111' },
+    { label: '人気', url: 'https://www.pornhub.com/video?o=mv' },
+  ]},
+  { site: 'TXXX', domain: 'txxx.com', siteUrl: 'https://txxx.com/', group: '動画サイト', items: [
+    { label: 'Japanese', url: 'https://txxx.com/categories/japanese/' },
+    { label: '人気', url: 'https://txxx.com/most-popular/' },
+    { label: '新着', url: 'https://txxx.com/latest-updates/' },
+  ]},
+  { site: 'ToxicStream', domain: 'toxicstream.com', siteUrl: 'https://toxicstream.com/', group: 'Twitter/X動画まとめ', items: [
     { label: 'ero カテゴリ', url: 'https://toxicstream.com/category/ero/' },
   ]},
-  { site: 'おなりずむ', domain: 'onalism.com', siteUrl: 'https://onalism.com/', items: [
+  { site: 'おなりずむ', domain: 'onalism.com', siteUrl: 'https://onalism.com/', group: 'Twitter/X動画まとめ', items: [
     { label: '一覧', url: 'https://onalism.com/' },
   ]},
-  { site: 'ポッカキット', domain: 'www.po-kaki-to.com', siteUrl: 'https://www.po-kaki-to.com/', items: [
+  { site: 'ポッカキット', domain: 'www.po-kaki-to.com', siteUrl: 'https://www.po-kaki-to.com/', group: 'Twitter/X動画まとめ', items: [
     { label: 'アーカイブ', url: 'https://www.po-kaki-to.com/archives' },
   ]},
-  { site: '露出羞恥に魅せられて', domain: 'roshutu-shuuti.net', siteUrl: 'https://roshutu-shuuti.net/', items: [
+  { site: '露出羞恥に魅せられて', domain: 'roshutu-shuuti.net', siteUrl: 'https://roshutu-shuuti.net/', group: 'Twitter/X動画まとめ', items: [
     { label: '一覧', url: 'https://roshutu-shuuti.net/' },
   ]},
-  { site: 'twi-dl', domain: 'www.twi-dl.net', siteUrl: 'https://www.twi-dl.net/', items: [
+  { site: 'twi-dl', domain: 'www.twi-dl.net', siteUrl: 'https://www.twi-dl.net/', group: 'Twitter/X動画まとめ', items: [
     { label: 'ランキング', url: 'https://www.twi-dl.net/rank.php', filter: 'v\\.php\\?video=' },
     { label: '新着', url: 'https://www.twi-dl.net/hozon.php', filter: 'v\\.php\\?video=' },
   ]},
-  { site: 'ヌキストリーム', domain: 'www.nukistream.com', siteUrl: 'https://www.nukistream.com/', items: [
+  { site: 'ヌキストリーム', domain: 'www.nukistream.com', siteUrl: 'https://www.nukistream.com/', group: 'Twitter/X動画まとめ', items: [
     { label: '動画一覧', url: 'https://www.nukistream.com/category.php?id=41', filter: 'video\\.php\\?id=' },
   ]},
-  { site: 'monsnode', domain: 'monsnode.com', siteUrl: 'https://monsnode.com/', items: [
+  { site: 'monsnode', domain: 'monsnode.com', siteUrl: 'https://monsnode.com/', group: 'Twitter/X動画まとめ', items: [
     { label: '新着', url: 'https://monsnode.com/' },
     { label: '24時間', url: 'https://monsnode.com/?ranking=1&period=24h' },
     { label: '3日', url: 'https://monsnode.com/?ranking=1&period=3d' },
     { label: '7日', url: 'https://monsnode.com/?ranking=1&period=7d' },
   ]},
-  { site: 'monsnodes', domain: 'monsnodes.com', siteUrl: 'https://monsnodes.com/', items: [
+  { site: 'monsnodes', domain: 'monsnodes.com', siteUrl: 'https://monsnodes.com/', group: 'Twitter/X動画まとめ', items: [
     { label: 'Pick', url: 'https://monsnodes.com/?sort=m' },
     { label: 'New', url: 'https://monsnodes.com/?sort=n' },
     { label: 'Ranking', url: 'https://monsnodes.com/?sort=p' },
   ]},
-  { site: 'missav', domain: 'missav.ws', siteUrl: 'https://missav.ws/', items: [
-    { label: 'イメージビデオ', url: 'https://missav.ws/dm876/ja/genres/%E3%82%A4%E3%83%A1%E3%83%BC%E3%82%B8%E3%83%93%E3%83%87%E3%82%AA' },
-    { label: '野外・露出', url: 'https://missav.ws/dm399/ja/genres/%E9%87%8E%E5%A4%96%E3%83%BB%E9%9C%B2%E5%87%BA' },
-  ]},
-  { site: 'xvideo-jp', domain: 'xvideo-jp.com', siteUrl: 'https://xvideo-jp.com/', items: [
-    { label: '週間', url: 'https://xvideo-jp.com/?sort=week' },
-    { label: '月間', url: 'https://xvideo-jp.com/?sort=month' },
-    { label: '新着', url: 'https://xvideo-jp.com/' },
-  ]},
-  { site: 'openload', domain: 'openload.mov', siteUrl: 'https://openload.mov/', items: [
-    { label: '急上昇', url: 'https://openload.mov/soaring/' },
-    { label: '人気', url: 'https://openload.mov/popularity/' },
-  ]},
-  { site: 'FC2動画', domain: 'video.fc2.com', siteUrl: 'https://video.fc2.com/', items: [
-    { label: '新着', url: 'https://video.fc2.com/a/search/video/?category_id=25' },
-  ]},
-  { site: 'DMM動画', domain: 'video.dmm.co.jp', siteUrl: 'https://video.dmm.co.jp/', items: [
-    { label: 'シリーズ', url: 'https://video.dmm.co.jp/av/list/?series=4592558' },
-  ]},
-  { site: 'twihub', domain: 'twihub.link', siteUrl: 'https://twihub.link/', items: [
+  { site: 'twihub', domain: 'twihub.link', siteUrl: 'https://twihub.link/', group: 'Twitter/X動画まとめ', items: [
     { label: 'リアルタイム', url: 'https://twihub.link/posts?type=realtime', filter: 'posts/[0-9a-f]{8}-' },
     { label: '30日', url: 'https://twihub.link/posts?type=30d', filter: 'posts/[0-9a-f]{8}-' },
     { label: '7日', url: 'https://twihub.link/posts?type=7d', filter: 'posts/[0-9a-f]{8}-' },
@@ -321,7 +330,15 @@ function selectPreset(p) {
 
 (function initPresets() {
   const grid = $('presetGrid');
+  let lastGroup = null;
   for (const g of PRESET_GROUPS) {
+    if (g.group && g.group !== lastGroup) {
+      const h = document.createElement('div');
+      h.className = 'pgroup';
+      h.textContent = g.group;
+      grid.appendChild(h);
+      lastGroup = g.group;
+    }
     const card = document.createElement('div');
     card.className = 'pcard';
     const head = document.createElement('button');

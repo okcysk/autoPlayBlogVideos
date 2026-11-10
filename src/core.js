@@ -282,6 +282,45 @@ export function extractList(html, baseUrl, filter) {
     if (filter) vids = vids.filter((l) => filter.test(l.url));
     return { links: vids, next: findNext(html, baseUrl) };
   }
+  // pornhub.com はサーバー描画。動画は /view_video.php?viewkey= リンク。
+  // タイトルは a の title 属性、サムネイルは中の img。ページ送りは ?page=N
+  if (/(^|\.)pornhub\.com$/i.test(base.host)) {
+    const byUrl = new Map();
+    for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']*view_video\.php\?viewkey=([a-z0-9]+))[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      // viewkey が ph 始まりのものは「すべて再生」等のプレイリスト用リンクなので除外
+      if (/^ph/i.test(m[2])) continue;
+      const url = absolutize(m[1].replace(/&amp;/g, '&'), baseUrl);
+      if (!url || !/(^|\.)pornhub\.com$/i.test(new URL(url).hostname)) continue;
+      const titleAttr = (m[0].match(/\btitle=["']([^"']+)["']/i) || [])[1];
+      const text = m[3].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const title = (titleAttr || text || '').trim();
+      const img = m[3].match(/<img\b[^>]*src=["']([^"']+)["']/i);
+      const thumb = img && /^https?:/i.test(absolutize(img[1], baseUrl) || '') ? absolutize(img[1], baseUrl) : null;
+      const prev = byUrl.get(url);
+      const better = title && (!prev?.title || title.length > prev.title.length);
+      byUrl.set(url, { url, title: better ? title : (prev?.title || ''), ...(prev?.thumb || thumb ? { thumb: prev?.thumb || thumb } : {}) });
+    }
+    let vids = [...byUrl.values()].filter((v) => v.title);
+    if (filter) vids = vids.filter((l) => filter.test(l.url));
+    // rel=next や page=N+1 のリンクを探す（href 内の &amp; は & に戻す）
+    let next = null;
+    for (const p of [
+      /<link\b[^>]*rel=["']next["'][^>]*href=["']([^"']+)["']/i,
+      /<a\b[^>]*rel=["']next["'][^>]*href=["']([^"']+)["']/i,
+      /<a\b[^>]*class=["'][^"']*\bnext\b[^"']*["'][^>]*href=["']([^"']+)["']/i,
+    ]) {
+      const mm = html.match(p);
+      if (mm) { next = absolutize(mm[1].replace(/&amp;/g, '&'), baseUrl); break; }
+    }
+    if (!next) {
+      const baseKey = pageKey(baseUrl), baseNum = pageNum(baseUrl);
+      for (const mm of html.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)) {
+        const url = absolutize(mm[1].replace(/&amp;/g, '&'), baseUrl);
+        if (url && pageKey(url) === baseKey && pageNum(url) === baseNum + 1) { next = url; break; }
+      }
+    }
+    return { links: vids, next };
+  }
   if (!filter) {
     // 記事っぽいURL（日付・数字・articles 等）が多数あれば、それだけに絞る
     const articleLike = links.filter(l => /\/(20\d\d|\d{3,}|articles?|posts?|entry|archives|recipe|blog)[\/-]/i.test(new URL(l.url).pathname + '/'));
@@ -419,6 +458,111 @@ function decodeSingleAtob(html) {
     const url = atob(m[1]);
     return /^https?:\/\//.test(url) ? url : null;
   } catch { return null; }
+}
+
+// TXXX の video_url は独自 base64（キリル文字の紛らわしい文字で A,B,C,E,M を
+// 置き換え、+→'.' /→',' =→'~'）でエンコードされている。標準 base64 に正規化して復号する
+function txxxDecode(s) {
+  const t = s
+    .replace(/[АВСЕМ]/g, (c) => ({ 'А': 'A', 'В': 'B', 'С': 'C', 'Е': 'E', 'М': 'M' })[c])
+    .replace(/\./g, '+').replace(/,/g, '/').replace(/~/g, '=');
+  try {
+    const bin = atob(t);
+    let out = '';
+    for (let i = 0; i < bin.length; i++) out += String.fromCharCode(bin.charCodeAt(i));
+    return out;
+  } catch { return null; }
+}
+
+// TXXX の一覧・動画は HTML ではなく JSON API で返す。
+// 一覧: /api/json/videos2/<lifetime>/<gender>/<sort>/<count>/<section>.<object>.<page>.all...jsond
+// 動画: /api/json/video/.../<id>.jsond と /api/videofile.php?video_id=<id>
+const TXXX_SORTS = ['latest-updates', 'most-popular', 'top-rated', 'longest', 'most-commented'];
+
+function txxxPageParts(pageUrl) {
+  const u = new URL(pageUrl);
+  const seg = u.pathname.split('/').filter(Boolean);
+  let section = '', objectId = '', sort = 'latest-updates', date = '', page = 1;
+  // サイトの実URLは /categories/<slug>/<page>/?sort=..&date=.. または /<sort>/<page>/
+  const qSort = u.searchParams.get('sort');
+  if (TXXX_SORTS.includes(qSort)) sort = qSort;
+  const qDate = u.searchParams.get('date');
+  if (qDate && /^[a-z0-9-]+$/i.test(qDate)) date = qDate;
+  if (seg[0] === 'categories' && seg[1]) {
+    section = 'categories'; objectId = seg[1]; page = +(seg[2] || 1);
+  } else if (TXXX_SORTS.includes(seg[0])) {
+    sort = seg[0]; page = +(seg[1] || 1);
+  }
+  const query = [sort !== 'latest-updates' ? `sort=${sort}` : '', date ? `date=${date}` : ''].filter(Boolean).join('&');
+  const pageUrlFor = (n) => {
+    const p = objectId ? `/categories/${objectId}/${n}/` : `/${sort}/${n}/`;
+    return `https://txxx.com${p}${query ? '?' + query : ''}`;
+  };
+  return { section, objectId, sort, date, page, pageUrlFor };
+}
+
+async function txxxList(pageUrl, pages) {
+  const { section, objectId, sort, date, page, pageUrlFor } = txxxPageParts(pageUrl);
+  const all = [];
+  const seen = new Set();
+  let fetched = 0;
+  for (let p = page; fetched < pages; p++) {
+    const spec = `${section}.${objectId}.${p}.all..${date}.jsond`;
+    const r = await fetch(`https://txxx.com/api/json/videos2/14400/str/${sort}/60/${spec}`, {
+      headers: { 'User-Agent': UA, Referer: 'https://txxx.com/' }, signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) break;
+    const j = await r.json();
+    const vids = j.videos || [];
+    if (!vids.length) break;
+    fetched++;
+    for (const v of vids) {
+      const url = `https://txxx.com/videos/${v.video_id}/${v.dir}/`;
+      if (seen.has(url)) continue;
+      seen.add(url);
+      all.push({ url, title: v.title || '', thumb: v.scr || undefined });
+    }
+    if (p - page + 1 >= pages || vids.length < 60) break;
+  }
+  const next = fetched >= pages ? pageUrlFor(page + fetched) : null;
+  return { links: all, pagesFetched: fetched, next };
+}
+
+// TXXX の動画ページは /videos/<id>/<dir>/。API から mp4 直リンク（署名付き）を取る
+async function txxxVideos(url) {
+  const id = new URL(url).pathname.match(/\/videos\/(\d+)/)?.[1];
+  if (!id) throw new Error('TXXX の動画IDがURLに含まれていません');
+  const [vf, meta] = await Promise.all([
+    fetch(`https://txxx.com/api/videofile.php?video_id=${id}`, {
+      headers: { 'User-Agent': UA, Referer: 'https://txxx.com/' }, signal: AbortSignal.timeout(20000),
+    }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    fetch(`https://txxx.com/api/json/video/0/${Math.floor(id / 1e6) * 1e6}/${Math.floor(id / 1e3) * 1e3}/${id}.jsond`, {
+      headers: { 'User-Agent': UA, Referer: 'https://txxx.com/' }, signal: AbortSignal.timeout(20000),
+    }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+  ]);
+  const fmt = Array.isArray(vf) ? vf.find((f) => f.video_url) : null;
+  const path = fmt && txxxDecode(fmt.video_url);
+  if (!path) throw new Error('TXXX の動画URLを取得できませんでした');
+  // get_file は ahcdn への署名付きリダイレクト。最終URLは Referer 不要・約24時間有効なので
+  // プロキシを介さずブラウザから直接再生できる
+  const mp4 = 'https://txxx.com' + path;
+  let fileUrl = mp4;
+  try {
+    const r = await fetch(mp4, {
+      headers: { 'User-Agent': UA, Referer: 'https://txxx.com/', Range: 'bytes=0-0' },
+      redirect: 'follow', signal: AbortSignal.timeout(15000),
+    });
+    if (r.url && /^https?:\/\//.test(r.url)) fileUrl = r.url;
+  } catch { /* リダイレクト解決に失敗しても get_file URL 自体は有効 */ }
+  const v = meta?.video || meta || {};
+  return {
+    title: v.title || '',
+    videos: [{
+      type: 'file',
+      id: fileUrl,
+      ...(v.thumb ? { thumb: v.thumb } : {}),
+    }],
+  };
 }
 
 // openload.mov の動画ページは eval packer で難読化され、
@@ -841,6 +985,12 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         if (/(^|\.)video\.dmm\.co\.jp$/i.test(lu.hostname) && /\/av\//.test(lu.pathname)) {
           return { status: 200, body: await dmmList(url, pages, filter) };
         }
+        // TXXX は HTML が JS シェルなので JSON API で一覧を取る
+        if (/(^|\.)txxx\.com$/i.test(lu.hostname)) {
+          const body = await txxxList(url, pages);
+          if (filter) body.links = body.links.filter((l) => filter.test(l.url));
+          return { status: 200, body };
+        }
       }
       const all = [];
       const seen = new Set();
@@ -877,7 +1027,22 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           return { status: 200, body: { title: c?.title || '', videos } };
         }
       }
+      // TXXX は API だけで mp4 直リンクを解決する（HTML は JS シェル）
+      if (/(^|\.)txxx\.com$/i.test(new URL(url).hostname)) {
+        return { status: 200, body: await txxxVideos(url) };
+      }
       const html = await getPage(url);
+      // Pornhub の動画ページは CDN の署名URLがIP紐付けでブラウザから取れないため、
+      // 公式 embed プレイヤー（type 'pornhub' → iframe）だけを返す
+      if (/(^|\.)pornhub\.com$/i.test(new URL(url).hostname)) {
+        const vk = new URL(url).searchParams.get('viewkey')
+          || url.match(/viewkey=([a-z0-9]+)/i)?.[1]
+          || url.match(/\/(?:embed|video)\/([a-z0-9]{10,16})/i)?.[1];
+        if (vk) {
+          const thumb = pageThumb(html, url);
+          return { status: 200, body: { title: pageTitle(html), videos: [{ type: 'pornhub', id: vk.toLowerCase(), ...(thumb ? { thumb } : {}) }] } };
+        }
+      }
       let videos = extractVideos(html, url);
       // 記事内に埋め込みがなく外部動画サイトへのリンクだけの場合、リンク先ページから抽出する
       if (!videos.length) {
