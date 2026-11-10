@@ -138,7 +138,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.65</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.66</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -253,37 +253,6 @@ window.onYouTubeIframeAPIReady = () => { ytApiReady = true; };
 // プリセット一覧。同一サイトの別ページは1カードにまとめ、下半分にリンクを並べる。
 // filter は記事URLの絞り込み正規表現（従来の data-filter 相当）
 const PRESET_GROUPS = [
-  { site: 'missav', domain: 'missav.ws', siteUrl: 'https://missav.ws/', group: '動画サイト', items: [
-    { label: 'イメージビデオ', url: 'https://missav.ws/dm876/ja/genres/%E3%82%A4%E3%83%A1%E3%83%BC%E3%82%B8%E3%83%93%E3%83%87%E3%82%AA' },
-    { label: '野外・露出', url: 'https://missav.ws/dm399/ja/genres/%E9%87%8E%E5%A4%96%E3%83%BB%E9%9C%B2%E5%87%BA' },
-  ]},
-  { site: 'xvideo-jp', domain: 'xvideo-jp.com', siteUrl: 'https://xvideo-jp.com/', group: '動画サイト', items: [
-    { label: '週間', url: 'https://xvideo-jp.com/?sort=week' },
-    { label: '月間', url: 'https://xvideo-jp.com/?sort=month' },
-    { label: '新着', url: 'https://xvideo-jp.com/' },
-  ]},
-  { site: 'openload', domain: 'openload.mov', siteUrl: 'https://openload.mov/', group: '動画サイト', items: [
-    { label: '急上昇', url: 'https://openload.mov/soaring/' },
-    { label: '人気', url: 'https://openload.mov/popularity/' },
-  ]},
-  { site: 'FC2動画', domain: 'video.fc2.com', siteUrl: 'https://video.fc2.com/', group: '動画サイト', items: [
-    { label: '新着', url: 'https://video.fc2.com/a/search/video/?category_id=25' },
-  ]},
-  { site: 'DMM動画', domain: 'video.dmm.co.jp', siteUrl: 'https://video.dmm.co.jp/', group: '動画サイト', items: [
-    { label: 'シリーズ', url: 'https://video.dmm.co.jp/av/list/?series=4592558' },
-  ]},
-  { site: 'Pornhub', domain: 'www.pornhub.com', siteUrl: 'https://www.pornhub.com/', group: '動画サイト', items: [
-    { label: 'Japanese', url: 'https://www.pornhub.com/video?c=111' },
-    { label: '人気', url: 'https://www.pornhub.com/video?o=mv' },
-  ]},
-  { site: 'TXXX', domain: 'txxx.com', siteUrl: 'https://txxx.com/', group: '動画サイト', items: [
-    { label: 'Japanese', url: 'https://txxx.com/categories/japanese/' },
-    { label: '人気', url: 'https://txxx.com/most-popular/' },
-    { label: '新着', url: 'https://txxx.com/latest-updates/' },
-  ]},
-  { site: 'Spankbang', domain: 'spankbang.com', siteUrl: 'https://okcysk.github.io/spankbangMultiPlayer/', group: '動画サイト', items: [
-    { label: 'マルチプレイヤー', url: 'https://okcysk.github.io/spankbangMultiPlayer/', external: true },
-  ]},
   { site: 'ToxicStream', domain: 'toxicstream.com', siteUrl: 'https://toxicstream.com/', group: 'Twitter/X動画まとめ', items: [
     { label: 'ero カテゴリ', url: 'https://toxicstream.com/category/ero/' },
   ]},
@@ -319,6 +288,37 @@ const PRESET_GROUPS = [
     { label: '30日', url: 'https://twihub.link/posts?type=30d', filter: 'posts/[0-9a-f]{8}-' },
     { label: '7日', url: 'https://twihub.link/posts?type=7d', filter: 'posts/[0-9a-f]{8}-' },
     { label: '1日', url: 'https://twihub.link/posts?type=1d', filter: 'posts/[0-9a-f]{8}-' },
+  ]},
+  { site: 'missav', domain: 'missav.ws', siteUrl: 'https://missav.ws/', group: '動画サイト', items: [
+    { label: 'イメージビデオ', url: 'https://missav.ws/dm876/ja/genres/%E3%82%A4%E3%83%A1%E3%83%BC%E3%82%B8%E3%83%93%E3%83%87%E3%82%AA' },
+    { label: '野外・露出', url: 'https://missav.ws/dm399/ja/genres/%E9%87%8E%E5%A4%96%E3%83%BB%E9%9C%B2%E5%87%BA' },
+  ]},
+  { site: 'xvideo-jp', domain: 'xvideo-jp.com', siteUrl: 'https://xvideo-jp.com/', group: '動画サイト', items: [
+    { label: '週間', url: 'https://xvideo-jp.com/?sort=week' },
+    { label: '月間', url: 'https://xvideo-jp.com/?sort=month' },
+    { label: '新着', url: 'https://xvideo-jp.com/' },
+  ]},
+  { site: 'openload', domain: 'openload.mov', siteUrl: 'https://openload.mov/', group: '動画サイト', items: [
+    { label: '急上昇', url: 'https://openload.mov/soaring/' },
+    { label: '人気', url: 'https://openload.mov/popularity/' },
+  ]},
+  { site: 'FC2動画', domain: 'video.fc2.com', siteUrl: 'https://video.fc2.com/', group: '動画サイト', items: [
+    { label: '新着', url: 'https://video.fc2.com/a/search/video/?category_id=25' },
+  ]},
+  { site: 'DMM動画', domain: 'video.dmm.co.jp', siteUrl: 'https://video.dmm.co.jp/', group: '動画サイト', items: [
+    { label: 'シリーズ', url: 'https://video.dmm.co.jp/av/list/?series=4592558' },
+  ]},
+  { site: 'Pornhub', domain: 'www.pornhub.com', siteUrl: 'https://www.pornhub.com/', group: '動画サイト', items: [
+    { label: 'Japanese', url: 'https://www.pornhub.com/video?c=111' },
+    { label: '人気', url: 'https://www.pornhub.com/video?o=mv' },
+  ]},
+  { site: 'TXXX', domain: 'txxx.com', siteUrl: 'https://txxx.com/', group: '動画サイト', items: [
+    { label: 'Japanese', url: 'https://txxx.com/categories/japanese/' },
+    { label: '人気', url: 'https://txxx.com/most-popular/' },
+    { label: '新着', url: 'https://txxx.com/latest-updates/' },
+  ]},
+  { site: 'Spankbang', domain: 'spankbang.com', siteUrl: 'https://okcysk.github.io/spankbangMultiPlayer/', group: 'その他', items: [
+    { label: 'マルチプレイヤー', url: 'https://okcysk.github.io/spankbangMultiPlayer/', external: true },
   ]},
 ];
 
