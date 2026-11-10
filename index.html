@@ -138,7 +138,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.66</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.67</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -253,37 +253,37 @@ window.onYouTubeIframeAPIReady = () => { ytApiReady = true; };
 // プリセット一覧。同一サイトの別ページは1カードにまとめ、下半分にリンクを並べる。
 // filter は記事URLの絞り込み正規表現（従来の data-filter 相当）
 const PRESET_GROUPS = [
-  { site: 'ToxicStream', domain: 'toxicstream.com', siteUrl: 'https://toxicstream.com/', group: 'Twitter/X動画まとめ', items: [
+  { site: 'ToxicStream', domain: 'toxicstream.com', siteUrl: 'https://toxicstream.com/', group: 'ツイート動画まとめブログ', items: [
     { label: 'ero カテゴリ', url: 'https://toxicstream.com/category/ero/' },
   ]},
-  { site: 'おなりずむ', domain: 'onalism.com', siteUrl: 'https://onalism.com/', group: 'Twitter/X動画まとめ', items: [
+  { site: 'おなりずむ', domain: 'onalism.com', siteUrl: 'https://onalism.com/', group: 'ツイート動画まとめブログ', items: [
     { label: '一覧', url: 'https://onalism.com/' },
   ]},
-  { site: 'ポッカキット', domain: 'www.po-kaki-to.com', siteUrl: 'https://www.po-kaki-to.com/', group: 'Twitter/X動画まとめ', items: [
+  { site: 'ポッカキット', domain: 'www.po-kaki-to.com', siteUrl: 'https://www.po-kaki-to.com/', group: 'ツイート動画まとめブログ', items: [
     { label: 'アーカイブ', url: 'https://www.po-kaki-to.com/archives' },
   ]},
-  { site: '露出羞恥に魅せられて', domain: 'roshutu-shuuti.net', siteUrl: 'https://roshutu-shuuti.net/', group: 'Twitter/X動画まとめ', items: [
+  { site: '露出羞恥に魅せられて', domain: 'roshutu-shuuti.net', siteUrl: 'https://roshutu-shuuti.net/', group: 'ツイート動画まとめブログ', items: [
     { label: '一覧', url: 'https://roshutu-shuuti.net/' },
   ]},
-  { site: 'twi-dl', domain: 'www.twi-dl.net', siteUrl: 'https://www.twi-dl.net/', group: 'Twitter/X動画まとめ', items: [
+  { site: 'ヌキストリーム', domain: 'www.nukistream.com', siteUrl: 'https://www.nukistream.com/', group: 'ツイート動画まとめブログ', items: [
+    { label: '動画一覧', url: 'https://www.nukistream.com/category.php?id=41', filter: 'video\\.php\\?id=' },
+  ]},
+  { site: 'twi-dl', domain: 'www.twi-dl.net', siteUrl: 'https://www.twi-dl.net/', group: '動画リンク集・ランキング', items: [
     { label: 'ランキング', url: 'https://www.twi-dl.net/rank.php', filter: 'v\\.php\\?video=' },
     { label: '新着', url: 'https://www.twi-dl.net/hozon.php', filter: 'v\\.php\\?video=' },
   ]},
-  { site: 'ヌキストリーム', domain: 'www.nukistream.com', siteUrl: 'https://www.nukistream.com/', group: 'Twitter/X動画まとめ', items: [
-    { label: '動画一覧', url: 'https://www.nukistream.com/category.php?id=41', filter: 'video\\.php\\?id=' },
-  ]},
-  { site: 'monsnode', domain: 'monsnode.com', siteUrl: 'https://monsnode.com/', group: 'Twitter/X動画まとめ', items: [
+  { site: 'monsnode', domain: 'monsnode.com', siteUrl: 'https://monsnode.com/', group: '動画リンク集・ランキング', items: [
     { label: '新着', url: 'https://monsnode.com/' },
     { label: '24時間', url: 'https://monsnode.com/?ranking=1&period=24h' },
     { label: '3日', url: 'https://monsnode.com/?ranking=1&period=3d' },
     { label: '7日', url: 'https://monsnode.com/?ranking=1&period=7d' },
   ]},
-  { site: 'monsnodes', domain: 'monsnodes.com', siteUrl: 'https://monsnodes.com/', group: 'Twitter/X動画まとめ', items: [
+  { site: 'monsnodes', domain: 'monsnodes.com', siteUrl: 'https://monsnodes.com/', group: '動画リンク集・ランキング', items: [
     { label: 'Pick', url: 'https://monsnodes.com/?sort=m' },
     { label: 'New', url: 'https://monsnodes.com/?sort=n' },
     { label: 'Ranking', url: 'https://monsnodes.com/?sort=p' },
   ]},
-  { site: 'twihub', domain: 'twihub.link', siteUrl: 'https://twihub.link/', group: 'Twitter/X動画まとめ', items: [
+  { site: 'twihub', domain: 'twihub.link', siteUrl: 'https://twihub.link/', group: '動画リンク集・ランキング', items: [
     { label: 'リアルタイム', url: 'https://twihub.link/posts?type=realtime', filter: 'posts/[0-9a-f]{8}-' },
     { label: '30日', url: 'https://twihub.link/posts?type=30d', filter: 'posts/[0-9a-f]{8}-' },
     { label: '7日', url: 'https://twihub.link/posts?type=7d', filter: 'posts/[0-9a-f]{8}-' },
