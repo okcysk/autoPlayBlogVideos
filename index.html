@@ -90,7 +90,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.55</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.56</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -315,12 +315,6 @@ const rectCSS = (r) => ({
 // 判定結果はキュー項目にも保存し、スロット再構築や再読み込み後も引き継ぐ
 function slotPortrait(s) { return s.orient === 'v'; }
 
-function slotAspect(s) {
-  const el = s.videoEl;
-  if (el && el.videoWidth && el.videoHeight) return el.videoWidth / el.videoHeight;
-  return s.orient === 'v' ? 9 / 16 : 16 / 9;
-}
-
 function noteOrient(s) {
   const el = s.videoEl;
   if (!el || !el.videoWidth) return;
@@ -351,49 +345,25 @@ function buildItems() {
   return singles.concat(pairs);
 }
 
-// 領域の目標アスペクト比。ペアは縦型2本を横に並べた形なので個別アスペクトの合計
-function itemAspect(it) {
-  return it.slots.reduce((a, s) => a + slotAspect(s), 0);
-}
-const groupAspect = (items) => items.reduce((a, it) => a + itemAspect(it), 0) / items.length;
-
-// 矩形を縦(左右)または横(上下)に分割する最適な切断位置を選ぶ。
-// rect は 0-1 の割合指定なので、実アスペクト比は containerAspect（幅/高さ）を掛けて求める。
-// 子領域の実現アスペクトが目標に近づく分割を貪欲に選び、個数が偏らない方を優先する
-function layoutItems(items, rect, containerAspect) {
-  if (!items.length) return;
-  if (items.length === 1) {
-    const it = items[0];
-    if (it.type === 'pair') {
-      const [a, b] = it.slots;
-      a.rect = { x: rect.x, y: rect.y, w: rect.w / 2, h: rect.h };
-      b.rect = { x: rect.x + rect.w / 2, y: rect.y, w: rect.w / 2, h: rect.h };
-    } else it.slots[0].rect = { ...rect };
-    return;
-  }
-  const pAsp = (rect.w / rect.h) * containerAspect, n = items.length;
-  let best = null;
-  for (let cut = 1; cut < n; cut++) {
-    const g1 = items.slice(0, cut), g2 = items.slice(cut);
-    const a1 = groupAspect(g1), a2 = groupAspect(g2);
-    for (const o of ['v', 'h']) {
-      // 'v'=左右分割, 'h'=上下分割。f は先頭グループが取る幅/高さの割合
-      let f, c1, c2;
-      if (o === 'v') { f = a1 / (a1 + a2); c1 = f * pAsp; c2 = (1 - f) * pAsp; }
-      else { f = a2 / (a1 + a2); c1 = pAsp / f; c2 = pAsp / (1 - f); }
-      const err = Math.abs(Math.log(c1 / a1)) + Math.abs(Math.log(c2 / a2));
-      const bal = Math.abs(2 * cut - n);
-      if (!best || err < best.err - 1e-9 || (Math.abs(err - best.err) < 1e-9 && bal < best.bal))
-        best = { o, cut, f, err, bal };
+// items を行優先で rows 段に均等配置する。各行のアイテム数はできるだけ均し、
+// ペア項目はセルを左右50:50に分割して2スロットに割り当てる
+function layoutRows(items, rect, rows) {
+  const n = items.length;
+  rows = Math.max(1, Math.min(rows, n));
+  const base = Math.floor(n / rows), rem = n % rows;
+  const rh = rect.h / rows;
+  let idx = 0;
+  for (let r = 0; r < rows; r++) {
+    const cnt = base + (r < rem ? 1 : 0), rw = rect.w / cnt;
+    for (let c = 0; c < cnt; c++, idx++) {
+      const it = items[idx];
+      const cell = { x: rect.x + c * rw, y: rect.y + r * rh, w: rw, h: rh };
+      if (it.type === 'pair') {
+        const [a, b] = it.slots;
+        a.rect = { x: cell.x, y: cell.y, w: cell.w / 2, h: cell.h };
+        b.rect = { x: cell.x + cell.w / 2, y: cell.y, w: cell.w / 2, h: cell.h };
+      } else it.slots[0].rect = { ...cell };
     }
-  }
-  const g1 = items.slice(0, best.cut), g2 = items.slice(best.cut);
-  if (best.o === 'v') {
-    layoutItems(g1, { x: rect.x, y: rect.y, w: rect.w * best.f, h: rect.h }, containerAspect);
-    layoutItems(g2, { x: rect.x + rect.w * best.f, y: rect.y, w: rect.w * (1 - best.f), h: rect.h }, containerAspect);
-  } else {
-    layoutItems(g1, { x: rect.x, y: rect.y, w: rect.w, h: rect.h * best.f }, containerAspect);
-    layoutItems(g2, { x: rect.x, y: rect.y + rect.h * best.f, w: rect.w, h: rect.h * (1 - best.f) }, containerAspect);
   }
 }
 
@@ -403,10 +373,32 @@ function scheduleRelayout() {
   layoutTimer = setTimeout(rebuildLayout, 120);
 }
 
+// レイアウトは「通常セルのエリア（左）」と「縦型ペアのエリア（右）」の2ゾーン。
+// ゾーンの幅は動画数の比で分け、各ゾーン内は行数をアスペクト比から決めて均等配置する
 function rebuildLayout() {
   const grid = $('grid');
-  const containerAspect = grid.clientHeight ? grid.clientWidth / grid.clientHeight : 1;
-  layoutItems(buildItems(), { x: 0, y: 0, w: 1, h: 1 }, containerAspect);
+  const ca = grid.clientHeight ? grid.clientWidth / grid.clientHeight : 16 / 9;
+  const items = buildItems();
+  const pairs = items.filter((i) => i.type === 'pair');
+  const singles = items.filter((i) => i.type === 'single');
+  const full = { x: 0, y: 0, w: 1, h: 1 };
+  if (!pairs.length) {
+    // 縦型ペアなし: 全て通常セル。セルの目標アスペクトを 16:9 として行数を決める
+    const rows = Math.max(1, Math.round(Math.sqrt(singles.length * (16 / 9) / ca)));
+    layoutRows(singles, full, rows);
+  } else {
+    // 通常:縦型ペア = 動画数比で画面を左右に分割
+    const frac = singles.length / (singles.length + pairs.length * 2);
+    if (singles.length) {
+      const za = frac * ca;
+      const rows = Math.max(1, Math.round(Math.sqrt(singles.length * (16 / 9) / za)));
+      layoutRows(singles, { x: 0, y: 0, w: frac, h: 1 }, rows);
+    }
+    const pa = (1 - frac) * ca;
+    // ペアセル（縦型2本を左右に並べた形）の目標アスペクトを約 9:8 として行数を決める
+    const rows = Math.max(1, Math.round(Math.sqrt(pairs.length * 1.125 / pa)));
+    layoutRows(pairs, { x: frac, y: 0, w: 1 - frac, h: 1 }, rows);
+  }
   for (const s of slots) {
     // ステージは一度 grid に入れたら動かさない（iframe のリロード防止）。
     // setMultiCount で innerHTML を消した直後だけ付け直す
