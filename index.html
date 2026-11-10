@@ -138,7 +138,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.63</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.64</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -281,6 +281,9 @@ const PRESET_GROUPS = [
     { label: '人気', url: 'https://txxx.com/most-popular/' },
     { label: '新着', url: 'https://txxx.com/latest-updates/' },
   ]},
+  { site: 'Spankbang', domain: 'spankbang.com', siteUrl: 'https://okcysk.github.io/spankbangMultiPlayer/', group: '動画サイト', items: [
+    { label: 'マルチプレイヤー', url: 'https://okcysk.github.io/spankbangMultiPlayer/', external: true },
+  ]},
   { site: 'ToxicStream', domain: 'toxicstream.com', siteUrl: 'https://toxicstream.com/', group: 'Twitter/X動画まとめ', items: [
     { label: 'ero カテゴリ', url: 'https://toxicstream.com/category/ero/' },
   ]},
@@ -320,6 +323,9 @@ const PRESET_GROUPS = [
 ];
 
 function selectPreset(p) {
+  $('presetGrid').hidden = true;
+  // external は再生プリセットではなく別ツールへのリンク
+  if (p.external) { window.open(p.url, '_blank', 'noopener'); return; }
   $('url').value = p.url;
   $('filter').value = p.filter || '';
   $('presetGrid').hidden = true;
