@@ -994,7 +994,16 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
                 const r = await fetch(u, { headers, signal: AbortSignal.timeout(15000) });
                 if (!r.ok) return null;
                 const t = await r.text();
-                try { return JSON.parse(t); } catch { return null; } // HTMLのスタブページ等は弾く
+                try { return JSON.parse(t); } catch { /* HTMLラッパーの場合は下で剥がす */ }
+                // Jina Reader は JSON を <pre> 内にHTMLエスケープして返すので剥がして再パース
+                const m = t.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
+                if (m) {
+                  const body = m[1]
+                    .replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'")
+                    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+                  try { return JSON.parse(body); } catch { /* ダメなら null */ }
+                }
+                return null; // HTMLのスタブページ等は弾く
               };
               // Workers のIPでは eporner がブロックするので、だめなら Jina / 公開プロキシ経由で取り直す
               let j = await getJson(apiUrl, { 'User-Agent': UA, Referer: `https://${domain}/` });
@@ -1003,7 +1012,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
                 ...(jinaKey ? { Authorization: `Bearer ${jinaKey}` } : {}),
               });
               if (!j) j = await getJson(`https://api.cors.lol/?url=${encodeURIComponent(apiUrl)}`, { 'User-Agent': UA });
-              if (j) {
+              if (j && j.code === 0) {
                 const mp4s = j.sources?.mp4 || {};
                 const pick = Object.values(mp4s).find((s) => s.default) || Object.values(mp4s)[0];
                 if (pick?.src) Object.assign(v, { type: 'file', id: pick.src });
