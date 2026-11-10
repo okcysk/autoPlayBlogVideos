@@ -90,7 +90,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.54</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.55</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読み込み元 動画サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -358,8 +358,9 @@ function itemAspect(it) {
 const groupAspect = (items) => items.reduce((a, it) => a + itemAspect(it), 0) / items.length;
 
 // 矩形を縦(左右)または横(上下)に分割する最適な切断位置を選ぶ。
+// rect は 0-1 の割合指定なので、実アスペクト比は containerAspect（幅/高さ）を掛けて求める。
 // 子領域の実現アスペクトが目標に近づく分割を貪欲に選び、個数が偏らない方を優先する
-function layoutItems(items, rect) {
+function layoutItems(items, rect, containerAspect) {
   if (!items.length) return;
   if (items.length === 1) {
     const it = items[0];
@@ -370,7 +371,7 @@ function layoutItems(items, rect) {
     } else it.slots[0].rect = { ...rect };
     return;
   }
-  const pAsp = rect.w / rect.h, n = items.length;
+  const pAsp = (rect.w / rect.h) * containerAspect, n = items.length;
   let best = null;
   for (let cut = 1; cut < n; cut++) {
     const g1 = items.slice(0, cut), g2 = items.slice(cut);
@@ -388,11 +389,11 @@ function layoutItems(items, rect) {
   }
   const g1 = items.slice(0, best.cut), g2 = items.slice(best.cut);
   if (best.o === 'v') {
-    layoutItems(g1, { x: rect.x, y: rect.y, w: rect.w * best.f, h: rect.h });
-    layoutItems(g2, { x: rect.x + rect.w * best.f, y: rect.y, w: rect.w * (1 - best.f), h: rect.h });
+    layoutItems(g1, { x: rect.x, y: rect.y, w: rect.w * best.f, h: rect.h }, containerAspect);
+    layoutItems(g2, { x: rect.x + rect.w * best.f, y: rect.y, w: rect.w * (1 - best.f), h: rect.h }, containerAspect);
   } else {
-    layoutItems(g1, { x: rect.x, y: rect.y, w: rect.w, h: rect.h * best.f });
-    layoutItems(g2, { x: rect.x, y: rect.y + rect.h * best.f, w: rect.w, h: rect.h * (1 - best.f) });
+    layoutItems(g1, { x: rect.x, y: rect.y, w: rect.w, h: rect.h * best.f }, containerAspect);
+    layoutItems(g2, { x: rect.x, y: rect.y + rect.h * best.f, w: rect.w, h: rect.h * (1 - best.f) }, containerAspect);
   }
 }
 
@@ -404,7 +405,8 @@ function scheduleRelayout() {
 
 function rebuildLayout() {
   const grid = $('grid');
-  layoutItems(buildItems(), { x: 0, y: 0, w: 1, h: 1 });
+  const containerAspect = grid.clientHeight ? grid.clientWidth / grid.clientHeight : 1;
+  layoutItems(buildItems(), { x: 0, y: 0, w: 1, h: 1 }, containerAspect);
   for (const s of slots) {
     // ステージは一度 grid に入れたら動かさない（iframe のリロード防止）。
     // setMultiCount で innerHTML を消した直後だけ付け直す
