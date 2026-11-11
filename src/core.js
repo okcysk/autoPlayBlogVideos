@@ -569,10 +569,26 @@ async function txxxVideos(url, apiOrigin) {
 }
 
 // FANZAライブチャットの一覧ページを取得する。
-// 年齢確認は ckcy=1; age_check_done=1 のCookieを付けるだけで通る（実測確認済み）
+// 年齢確認は declared=yes で発行されるCookieを引き継いでから対象ページを取る
 async function dmmLivechatHtml(pageUrl) {
+  const baseHeaders = {
+    'User-Agent': UA, 'Accept-Language': 'ja',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  };
+  // 年齢確認を通過させて Cookie を得る（リダイレクトは追わない）
+  const age = await fetch(`https://www.dmm.co.jp/age_check/=/declared=yes/?rurl=${encodeURIComponent(pageUrl)}`, {
+    headers: baseHeaders, redirect: 'manual', signal: AbortSignal.timeout(30000),
+  });
+  const cookies = [];
+  const setCookies = typeof age.headers.getSetCookie === 'function' ? age.headers.getSetCookie() : [];
+  for (const c of setCookies) {
+    const [pair] = c.split(';');
+    const name = pair.split('=')[0].trim();
+    if (/^(ckcy|age_check_done|csrf)$/.test(name)) cookies.push(pair);
+  }
+  if (!cookies.length) cookies.push('age_check_done=1');
   const r = await fetch(pageUrl, {
-    headers: { 'User-Agent': UA, Cookie: 'ckcy=1; age_check_done=1', 'Accept-Language': 'ja' },
+    headers: { ...baseHeaders, Cookie: cookies.join('; ') },
     redirect: 'follow', signal: AbortSignal.timeout(30000),
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${pageUrl}`);
@@ -606,8 +622,29 @@ function parseDmmLivechatList(html, baseUrl) {
 }
 
 async function dmmLivechatList(pageUrl) {
-  const html = await dmmLivechatHtml(pageUrl);
-  return parseDmmLivechatList(html, pageUrl);
+  // まずSSRページを取る（名前・サムネイル付き）。日本国外IPは地域制限で弾かれる
+  try {
+    const html = await dmmLivechatHtml(pageUrl);
+    const parsed = parseDmmLivechatList(html, pageUrl);
+    if (parsed.length) return parsed;
+  } catch { /* 地域制限等で取れなければAPIにフォールバック */ }
+  // /api/online-list/online-statuses は地域制限の対象外。
+  // character_id とステータス・視聴数だけ取れる（名前はSSR側のみ）
+  const lu = new URL(pageUrl);
+  const r = await fetch(`${lu.origin}/api/online-list/online-statuses`, {
+    headers: { 'User-Agent': UA, Cookie: 'age_check_done=1', 'X-Requested-With': 'XMLHttpRequest', Referer: pageUrl },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${lu.origin}/api/online-list/online-statuses`);
+  const j = await r.json();
+  return (j.online_statuses || [])
+    .slice()
+    .sort((a, b) => (b.count || 0) - (a.count || 0))
+    .map((s) => ({
+      url: `https://www.dmm.co.jp/live/chat/-/chat-room/=/character_id=${s.character_id}/`,
+      title: `ID:${s.character_id} ・ ${s.chat_status_jp || ''} ・ 視聴${s.count || 0}`,
+      thumb: `https://pics.dmm.co.jp/livechat/${String(s.character_id).padStart(8, '0')}/profile_l.jpg`,
+    }));
 }
 
 // openload.mov の動画ページは eval packer で難読化され、
