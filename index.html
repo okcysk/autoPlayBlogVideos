@@ -138,7 +138,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.79</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.80</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -207,7 +207,7 @@
       <li>動画サイト：missav / xvideo-jp / openload / FC2動画 / DMM動画 / Pornhub / TXXX</li>
       <li>Twitter/X動画まとめ：ToxicStream / おなりずむ / ポッカキット / 露出羞恥に魅せられて</li>
       <li>twi-dl / ヌキストリーム / monsnode / monsnodes / twihub</li>
-      <li>その他：FC2ライブ（アダルト配信） / Spankbang</li>
+      <li>その他：Stripchat / FC2ライブ（アダルト配信） / Spankbang</li>
     </ul>
     <h3>主な操作</h3>
     <ul>
@@ -317,6 +317,9 @@ const PRESET_GROUPS = [
   { site: 'Pornhub', domain: 'www.pornhub.com', siteUrl: 'https://www.pornhub.com/', group: '動画サイト', items: [
     { label: 'Japanese', url: 'https://www.pornhub.com/video?c=111' },
     { label: '人気', url: 'https://www.pornhub.com/video?o=mv' },
+  ]},
+  { site: 'Stripchat', domain: 'stripchat.com', siteUrl: 'https://stripchat.com/', group: 'その他', items: [
+    { label: '日本人ライブ一覧', url: 'https://stripchat.com/' },
   ]},
   { site: 'FC2ライブ', domain: 'live.fc2.com', siteUrl: 'https://live.fc2.com/adult/?lang=ja', group: 'その他', items: [
     { label: 'アダルト配信一覧', url: 'https://live.fc2.com/adult/?lang=ja' },
@@ -693,7 +696,7 @@ function slotLoad(s, qi, resume = 0) {
   else if (v.type === 'vimeo') slotPlayVimeo(s, v);
   else if (v.type === 'file') slotPlayFile(s, v);
   else if (v.type === 'hls') slotPlayHls(s, v);
-  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow' || v.type === 'openload' || v.type === 'fc2live') slotPlayFrame(s, v);
+  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow' || v.type === 'openload' || v.type === 'fc2live' || v.type === 'stripchat') slotPlayFrame(s, v);
   else if (embedAdapters[v.type]) slotPlayEmbed(s, v);
   else s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
   scheduleRelayout();
@@ -802,11 +805,12 @@ function slotPlayFrame(s, v) {
     : v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
     : v.type === 'javynow' ? `https://javynow.com/player/${v.id}/`
     : v.type === 'fc2live' ? `https://live.fc2.com/embedPlayer/?id=${v.id}&lang=ja&suggest=0&thumbnail=1&adultaccess=1`
+    : v.type === 'stripchat' ? `https://stripchat.com/widgets/Player?modelName=${encodeURIComponent(v.id)}&strict=1`
     : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
   f.allow = 'autoplay; fullscreen; picture-in-picture';
   s.stage.appendChild(f);
-  // FC2ライブは終了のないライブ配信なのでタイムアウトでの自動送りはしない
-  if (v.type !== 'fc2live') s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
+  // FC2ライブ・Stripchatは終了のないライブ配信なのでタイムアウトでの自動送りはしない
+  if (v.type !== 'fc2live' && v.type !== 'stripchat') s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
 }
 
 function slotPlayEmbed(s, v) {

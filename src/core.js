@@ -739,6 +739,13 @@ export function extractVideos(html, pageUrl) {
       if (lid) add({ type: 'fc2live', id: lid });
     }
   } catch { /* ignore */ }
+  // Stripchat のモデルページも JS アプリなので Player ウィジェットの iframe 指定を返す
+  try {
+    if (/(^|\.)stripchat\.com$/i.test(new URL(pageUrl).hostname)) {
+      const su = new URL(pageUrl).pathname.match(/^\/([A-Za-z0-9_-]{2,})\/?$/)?.[1];
+      if (su) add({ type: 'stripchat', id: su });
+    }
+  } catch { /* ignore */ }
 
   for (const m of text.matchAll(/(?:youtube(?:-nocookie)?\.com\/(?:embed\/|watch\?(?:[^"'\s]*&)?v=|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/g)) {
     if (m[1] !== 'videoseries') add({ type: 'youtube', id: m[1] });
@@ -1002,6 +1009,32 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           if (filter) body.links = body.links.filter((l) => filter.test(l.url));
           return { status: 200, body };
         }
+        // Stripchat は /api/front/models の JSON で配信中モデル一覧を返す。
+        // status: public=無料公開ショー / groupShow=有料グループショー。public のみに絞る
+        if (/^stripchat\.com$/i.test(lu.hostname)) {
+          const all = [], seen = new Set();
+          const LIMIT = 50;
+          for (let p = 0; p < pages; p++) {
+            const res = await fetch(`https://stripchat.com/api/front/models?limit=${LIMIT}&offset=${p * LIMIT}&country=jp&primaryTag=girls`, {
+              headers: { 'User-Agent': UA, Referer: 'https://stripchat.com/' },
+              signal: AbortSignal.timeout(20000),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}: stripchat models`);
+            const data = await res.json();
+            const models = data.models || [];
+            for (const m of models) {
+              if (m.status !== 'public' || !m.isLive || !m.username || seen.has(m.username)) continue;
+              seen.add(m.username);
+              all.push({
+                url: `https://stripchat.com/${m.username}`,
+                title: [m.username, m.viewersCount ? `視聴${m.viewersCount}` : ''].filter(Boolean).join(' ・ '),
+                thumb: m.previewUrlThumbSmall || m.avatarUrl || null,
+              });
+            }
+            if (models.length < LIMIT) break;
+          }
+          return { status: 200, body: { links: all, pagesFetched: pages, next: null } };
+        }
         // FC2ライブは /adult/contents/allchannellist.php の JSON で配信中チャンネル一覧を返す
         if (/^live\.fc2\.com$/i.test(lu.hostname)) {
           const res = await fetch('https://live.fc2.com/adult/contents/allchannellist.php', {
@@ -1062,6 +1095,15 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       // 直リンクの m3u8（ライブHLS等）はページを取らずそのまま hls.js に渡す
       if (/\.m3u8(\?|$)/i.test(new URL(url).pathname)) {
         return { status: 200, body: { title: '', videos: [{ type: 'hls', id: url }] } };
+      }
+      // Stripchat のモデルページは JS アプリなので公式 Player ウィジェットを iframe で埋め込む
+      {
+        const sm = new URL(url).hostname === 'stripchat.com'
+          ? new URL(url).pathname.match(/^\/([A-Za-z0-9_-]{2,})\/?$/) : null;
+        const RESERVED = /^(api|widgets|categories|tags|login|signup|sign-in|sign-up|female-cams|male-cams|trans-cams|new|top|recommended|search|settings|support|blog|apps?|about|terms|privacy|contact|jobs|affiliates?|creators?|college|contests?|follow|favorites?|history|messages?|notifications?|wallet|token|purchase|pricing|watch|live|cam|embed|girls?|guys?|couples?|new-girls|top-girls)$/i;
+        if (sm && !RESERVED.test(sm[1])) {
+          return { status: 200, body: { title: sm[1], videos: [{ type: 'stripchat', id: sm[1] }] } };
+        }
       }
       // FC2ライブの視聴ページは配信が websocket+HLS で、ページ自体に動画URLがない。
       // 公式 embedPlayer を iframe で埋め込む type 'fc2live' を返す
