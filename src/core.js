@@ -566,10 +566,11 @@ async function txxxVideos(url, apiOrigin) {
   };
 }
 
-// Spankbanglive は Stripchat 系のライブ配信サイト。ページ自体は 406 で弾かれるが
-// /api/front/models の JSON が取れ、各モデルの hlsPlaylist（ライブHLS）を直接返せる。
-// 一覧アイテムの url は m3u8 そのもの（/api/videos 側で hls 型として返す）。
-// ライブ配信なので終了イベントは来ず、hls.js のライブ再生として残り続ける
+// Spankbanglive は Stripchat 系のライブ配信サイト。ページ自体はボット判定で弾かれやすいが
+// /api/front/models の JSON が取れる。一覧アイテムはモデルページURL（/<username>）にし、
+// /api/videos 側で type 'sbl'（公式ページの iframe）として返す。
+// HLS 直リンク（hlsPlaylist）も取れるが、プライベート/オフライン中はトレーラー動画が
+// 割り当てられるため、サイト側のプレイヤーに任せる iframe 方式を採用する
 const SBL_PRIMARY_TAGS = new Set(['girls', 'men', 'trans', 'couples']);
 async function sblList(pageUrl, pages) {
   const lu = new URL(pageUrl);
@@ -593,14 +594,14 @@ async function sblList(pageUrl, pages) {
     const models = j.models || [];
     fetched++;
     for (const m of models) {
-      const hls = m.hlsPlaylist;
-      if (!hls || !/^https:\/\//.test(hls) || seen.has(hls)) continue;
+      const name = m.username;
+      if (!name || seen.has(name)) continue;
       if (m.isOnline === false || m.broadcastSettings?.isBadStream) continue;
-      seen.add(hls);
+      seen.add(name);
       const viewers = m.viewersCount ? ` ・ 視聴${m.viewersCount}` : '';
       all.push({
-        url: hls,
-        title: `@${m.username || m.id}${viewers}`,
+        url: `https://${host}/${encodeURIComponent(name)}`,
+        title: `@${name}${viewers}`,
         thumb: m.previewUrlThumbSmall || m.avatarUrl || undefined,
       });
     }
@@ -1083,7 +1084,19 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       if (/(^|\.)txxx\.com$/i.test(new URL(url).hostname)) {
         return { status: 200, body: await txxxVideos(url, u.origin) };
       }
-      // 直リンクの m3u8（Spankbanglive のライブHLS等）はページを取らずそのまま hls.js に渡す
+      // Spankbanglive のモデルページ（/<username>）は API 不要で iframe 埋め込みにする。
+      // id は "ホスト/ユーザー名" 形式で、フロント側が https://<id> を iframe src にする
+      {
+        const su = new URL(url);
+        if (/(^|\.)spankbanglive\.com$/i.test(su.hostname)) {
+          const segs = su.pathname.split('/').filter(Boolean);
+          if (segs.length === 1 && !['girls', 'boys', 'trans', 'couples', 'tags', 'top', 'strips', 'search', 'api', 'assets'].includes(segs[0].toLowerCase())) {
+            return { status: 200, body: { title: '', videos: [{ type: 'sbl', id: `${su.hostname}/${segs[0]}` }] } };
+          }
+          throw new Error('Spankbanglive のモデルページURLを指定してください');
+        }
+      }
+      // 直リンクの m3u8（ライブHLS等）はページを取らずそのまま hls.js に渡す
       if (/\.m3u8(\?|$)/i.test(new URL(url).pathname)) {
         return { status: 200, body: { title: '', videos: [{ type: 'hls', id: url }] } };
       }
