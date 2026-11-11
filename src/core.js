@@ -15,7 +15,9 @@ export async function fetchHtml(url, init = {}) {
 }
 
 function decodeEntities(s) {
-  return s.replace(/&amp;/g, '&').replace(/&#0?38;/g, '&').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
+  return s.replace(/&amp;/g, '&').replace(/&#0?38;/g, '&').replace(/&quot;/g, '"').replace(/&#039;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (m, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (m, d) => String.fromCodePoint(+d));
 }
 
 function absolutize(href, base) {
@@ -566,50 +568,46 @@ async function txxxVideos(url, apiOrigin) {
   };
 }
 
-// Spankbanglive は Stripchat 系のライブ配信サイト。ページ自体はボット判定で弾かれやすいが
-// /api/front/models の JSON が取れる。一覧アイテムはモデルページURL（/<username>）にし、
-// /api/videos 側で type 'sbl'（公式ページの iframe）として返す。
-// HLS 直リンク（hlsPlaylist）も取れるが、プライベート/オフライン中はトレーラー動画が
-// 割り当てられるため、サイト側のプレイヤーに任せる iframe 方式を採用する
-const SBL_PRIMARY_TAGS = new Set(['girls', 'men', 'trans', 'couples']);
-async function sblList(pageUrl, pages) {
-  const lu = new URL(pageUrl);
-  const host = lu.hostname;
-  const ptRaw = lu.searchParams.get('pt') || 'girls';
-  const pt = SBL_PRIMARY_TAGS.has(ptRaw) ? ptRaw : 'girls';
-  const limit = 60;
-  const offset0 = Math.max(0, parseInt(lu.searchParams.get('offset') || '0', 10) || 0);
-  const all = [];
+// FANZAライブチャットの一覧ページを取得する。
+// 年齢確認は ckcy=1; age_check_done=1 のCookieを付けるだけで通る（実測確認済み）
+async function dmmLivechatHtml(pageUrl) {
+  const r = await fetch(pageUrl, {
+    headers: { 'User-Agent': UA, Cookie: 'ckcy=1; age_check_done=1', 'Accept-Language': 'ja' },
+    redirect: 'follow', signal: AbortSignal.timeout(30000),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${pageUrl}`);
+  return r.text();
+}
+
+// 一覧HTMLの CharacterItem アンカーからチャットルームURL・名前・サムネイル・視聴数を取る
+function parseDmmLivechatList(html, baseUrl) {
+  const out = [];
   const seen = new Set();
-  let fetched = 0;
-  let more = false;
-  for (let p = 0; p < pages; p++) {
-    const offset = offset0 + p * limit;
-    const r = await fetch(`https://${host}/api/front/models?primaryTag=${pt}&limit=${limit}&offset=${offset}`, {
-      headers: { 'User-Agent': UA, Referer: `https://${host}/`, Accept: 'application/json' },
-      signal: AbortSignal.timeout(20000),
+  for (const m of html.matchAll(/<a\b[^>]*href="([^"]*chat-room\/=\/character_id=(\d+)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)) {
+    const id = m[2];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const url = absolutize(m[1].replace(/&amp;/g, '&'), baseUrl);
+    if (!url) continue;
+    const inner = m[3];
+    const img = inner.match(/<img\b[^>]*>/i);
+    const src = img && (img[0].match(/\bsrc="([^"]+)"/i) || [])[1];
+    const alt = img && (img[0].match(/\balt="([^"]*)"/i) || [])[1];
+    const name = alt ? decodeEntities(alt).trim() : '';
+    const cnt = inner.match(new RegExp('id="count_' + id + '"[^>]*>\\s*(\\d+)'));
+    const viewers = cnt ? ` ・ 視聴${cnt[1]}` : '';
+    out.push({
+      url,
+      title: (name || `ID:${id}`) + viewers,
+      ...(src ? { thumb: src } : {}),
     });
-    if (!r.ok) break;
-    const j = await r.json();
-    const models = j.models || [];
-    fetched++;
-    for (const m of models) {
-      const name = m.username;
-      if (!name || seen.has(name)) continue;
-      if (m.isOnline === false || m.broadcastSettings?.isBadStream) continue;
-      seen.add(name);
-      const viewers = m.viewersCount ? ` ・ 視聴${m.viewersCount}` : '';
-      all.push({
-        url: `https://${host}/${encodeURIComponent(name)}`,
-        title: `@${name}${viewers}`,
-        thumb: m.previewUrlThumbSmall || m.avatarUrl || undefined,
-      });
-    }
-    if (models.length < limit) { more = false; break; }
-    more = true;
   }
-  const next = more ? `https://${host}/?offset=${offset0 + fetched * limit}${pt !== 'girls' ? `&pt=${pt}` : ''}` : null;
-  return { links: all, pagesFetched: fetched, next };
+  return out;
+}
+
+async function dmmLivechatList(pageUrl) {
+  const html = await dmmLivechatHtml(pageUrl);
+  return parseDmmLivechatList(html, pageUrl);
 }
 
 // openload.mov の動画ページは eval packer で難読化され、
@@ -1038,11 +1036,14 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           if (filter) body.links = body.links.filter((l) => filter.test(l.url));
           return { status: 200, body };
         }
-        // Spankbanglive は直fetchが406で弾かれるが models API のJSONが取れる
-        if (/(^|\.)spankbanglive\.com$/i.test(lu.hostname)) {
-          const body = await sblList(url, pages);
-          if (filter) body.links = body.links.filter((l) => filter.test(l.url + ' ' + l.title));
-          return { status: 200, body };
+        // FANZAライブチャット (livechat.dmm.co.jp / www.dmm.co.jp/live/chat) は
+        // 年齢確認Cookie(ckcy/age_check_done)が必要なSSRページ。
+        // 一覧は CharacterItem の chat-room リンクから取る
+        if (/(^|\.)livechat\.dmm\.co\.jp$/i.test(lu.hostname)
+          || (/(^|\.)dmm\.co\.jp$/i.test(lu.hostname) && lu.pathname.startsWith('/live/chat'))) {
+          const links = await dmmLivechatList(url);
+          const filtered = filter ? links.filter((l) => filter.test(l.url + ' ' + l.title)) : links;
+          return { status: 200, body: { links: filtered, pagesFetched: 1, next: null } };
         }
       }
       const all = [];
@@ -1080,21 +1081,17 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           return { status: 200, body: { title: c?.title || '', videos } };
         }
       }
+      // FANZAライブチャットのルームページは WebRTC(Sora) 配信で直接再生できないため、
+      // ルームページ自体を iframe で埋め込む（type 'dmmchat'）。ライブなので終了イベントなし
+      {
+        const du = new URL(url);
+        if (/(^|\.)dmm\.co\.jp$/i.test(du.hostname) && /character_id=\d+/.test(du.pathname + du.search)) {
+          return { status: 200, body: { title: '', videos: [{ type: 'dmmchat', id: url }] } };
+        }
+      }
       // TXXX は API だけで mp4 直リンクを解決する（HTML は JS シェル）
       if (/(^|\.)txxx\.com$/i.test(new URL(url).hostname)) {
         return { status: 200, body: await txxxVideos(url, u.origin) };
-      }
-      // Spankbanglive のモデルページ（/<username>）は API 不要で iframe 埋め込みにする。
-      // id は "ホスト/ユーザー名" 形式で、フロント側が https://<id> を iframe src にする
-      {
-        const su = new URL(url);
-        if (/(^|\.)spankbanglive\.com$/i.test(su.hostname)) {
-          const segs = su.pathname.split('/').filter(Boolean);
-          if (segs.length === 1 && !['girls', 'boys', 'trans', 'couples', 'tags', 'top', 'strips', 'search', 'api', 'assets'].includes(segs[0].toLowerCase())) {
-            return { status: 200, body: { title: '', videos: [{ type: 'sbl', id: `${su.hostname}/${segs[0]}` }] } };
-          }
-          throw new Error('Spankbanglive のモデルページURLを指定してください');
-        }
       }
       // 直リンクの m3u8（ライブHLS等）はページを取らずそのまま hls.js に渡す
       if (/\.m3u8(\?|$)/i.test(new URL(url).pathname)) {

@@ -138,7 +138,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.73</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.74</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -204,7 +204,7 @@
     <p>動画は自動で抽出されて再生キューに追加され、順番に再生が始まります。</p>
     <h3>対応サイト（プリセット）</h3>
     <ul>
-      <li>動画サイト：missav / xvideo-jp / openload / FC2動画 / DMM動画 / Pornhub / TXXX / Spankbanglive（ライブ配信）</li>
+      <li>動画サイト：missav / xvideo-jp / openload / FC2動画 / DMM動画 / Pornhub / TXXX / FANZAライブチャット（ライブ配信）</li>
       <li>Twitter/X動画まとめ：ToxicStream / おなりずむ / ポッカキット / 露出羞恥に魅せられて</li>
       <li>twi-dl / ヌキストリーム / monsnode / monsnodes / twihub</li>
     </ul>
@@ -320,8 +320,8 @@ const PRESET_GROUPS = [
   { site: 'Spankbang', domain: 'spankbang.com', siteUrl: 'https://okcysk.github.io/spankbangMultiPlayer/', group: 'その他', items: [
     { label: 'マルチプレイヤー', url: 'https://okcysk.github.io/spankbangMultiPlayer/', external: true },
   ]},
-  { site: 'Spankbanglive', domain: 'ja.spankbanglive.com', siteUrl: 'https://ja.spankbanglive.com/', group: 'その他', items: [
-    { label: 'ライブ一覧', url: 'https://ja.spankbanglive.com/' },
+  { site: 'FANZAライブチャット', domain: 'livechat.dmm.co.jp', siteUrl: 'https://livechat.dmm.co.jp/', group: 'その他', items: [
+    { label: 'オンライン', url: 'https://livechat.dmm.co.jp/' },
   ]},
 ];
 
@@ -691,7 +691,7 @@ function slotLoad(s, qi, resume = 0) {
   else if (v.type === 'vimeo') slotPlayVimeo(s, v);
   else if (v.type === 'file') slotPlayFile(s, v);
   else if (v.type === 'hls') slotPlayHls(s, v);
-  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow' || v.type === 'openload' || v.type === 'sbl') slotPlayFrame(s, v);
+  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow' || v.type === 'openload' || v.type === 'dmmchat') slotPlayFrame(s, v);
   else if (embedAdapters[v.type]) slotPlayEmbed(s, v);
   else s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
   scheduleRelayout();
@@ -799,12 +799,12 @@ function slotPlayFrame(s, v) {
   f.src = v.type === 'openload' ? v.id
     : v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
     : v.type === 'javynow' ? `https://javynow.com/player/${v.id}/`
-    : v.type === 'sbl' ? `https://${v.id}`
+    : v.type === 'dmmchat' ? v.id
     : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
   f.allow = 'autoplay; fullscreen; picture-in-picture';
   s.stage.appendChild(f);
-  // sbl はライブ配信で終了がないためタイムアウト自動送りはしない（B/Nで手動送り）
-  if (v.type !== 'sbl') s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
+  // dmmchat はライブ配信で終了がないためタイムアウト自動送りはしない（B/Nで手動送り）
+  if (v.type !== 'dmmchat') s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
 }
 
 function slotPlayEmbed(s, v) {
