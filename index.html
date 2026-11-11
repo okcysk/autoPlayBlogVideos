@@ -138,7 +138,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.78</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.79</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -151,7 +151,7 @@
 </header>
 <main>
   <section>
-    <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="9" value="4" title="同時再生数（1-9）"><button id="scrPlus" title="画面を増やす">＋</button></span><button id="fsBtn" type="button" title="動画エリアを全画面化">⛶ 全画面</button></div>
+    <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="16" value="4" title="同時再生数（1-16）"><button id="scrPlus" title="画面を増やす">＋</button></span><button id="fsBtn" type="button" title="動画エリアを全画面化">⛶ 全画面</button></div>
     <div id="stageWrap"><div id="grid"></div><div id="focusRing"></div><div id="osd"></div></div>
     <div id="info">
     <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
@@ -183,7 +183,7 @@
     <p>使い方は簡単です。対応サイトの一覧ページ（カテゴリ・検索結果・ランキングなど）のURLを入力欄に貼り付け、必要に応じてページ数と記事URLの絞り込み正規表現を指定して「読み込んで再生」を押すだけです。抽出された動画は自動で再生キューに追加され、再生が始まります。</p>
     <ul>
       <li>複数の動画サイトに対応（プリセットからワンクリックで読み込み）</li>
-      <li>同時再生数は画面上部の「−」「＋」または数字キー 1〜9 で変更</li>
+      <li>同時再生数は画面上部の「−」「＋」または数字キー 1〜9 で変更（10〜16は数値入力欄で指定）</li>
       <li>キーボード操作：WASDでフォーカス移動、Spaceで再生/停止、B/Nで前後の動画、↑↓で音量、Mでミュート、F/G/Hで再生速度</li>
       <li>「リンクをコピー」で現在の再生状態をURLとして共有可能</li>
       <li>iframe埋め込み型の動画は一部操作（シーク等）が制限される場合があります</li>
@@ -211,7 +211,7 @@
     </ul>
     <h3>主な操作</h3>
     <ul>
-      <li><b>1〜9</b>：同時再生数を変更　<b>WASD</b>：フォーカス移動</li>
+      <li><b>1〜9</b>：同時再生数を変更（10〜16は数値入力）　<b>WASD</b>：フォーカス移動</li>
       <li><b>Space</b>：再生/停止　<b>B/N</b>：前後の動画　<b>Z/X</b>：5秒シーク　<b>C/V</b>：30秒シーク</li>
       <li><b>↑/↓</b>：音量　<b>M</b>：ミュート　<b>F/G/H</b>：再生速度（等速/2.5倍/10倍）</li>
       <li><b>Shift</b>併用で全画面に適用。「リンクをコピー」で再生状態をURL共有できます。</li>
@@ -548,7 +548,7 @@ async function slotPosition(s) {
 }
 
 async function setMultiCount(n) {
-  n = Math.max(1, Math.min(9, Math.floor(n) || 1));
+  n = Math.max(1, Math.min(16, Math.floor(n) || 1));
   if (n === multiCount && slots.length) return;
   multiCount = n;
   $('scrCount').value = n;
@@ -1262,7 +1262,7 @@ document.addEventListener('keydown', (e) => {
   if (!$('helpModal').hidden) return;
   // プリセットカード上のボタンにフォーカスがあるときは Space/文字キーをカード操作に譲る
   if (e.target.closest('#presetGrid button')) return;
-  // 数字キーで同時再生数を指定（1=シングル、2-9=同時再生）
+  // 数字キーで同時再生数を指定（1=シングル、2-9=同時再生。10-16は数値入力か＋/−ボタン）
   if (/^[1-9]$/.test(e.key) && !e.shiftKey) {
     e.preventDefault();
     setMultiCount(+e.key);
