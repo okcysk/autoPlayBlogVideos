@@ -568,85 +568,6 @@ async function txxxVideos(url, apiOrigin) {
   };
 }
 
-// FANZAライブチャットの一覧ページを取得する。
-// 年齢確認は declared=yes で発行されるCookieを引き継いでから対象ページを取る
-async function dmmLivechatHtml(pageUrl) {
-  const baseHeaders = {
-    'User-Agent': UA, 'Accept-Language': 'ja',
-    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  };
-  // 年齢確認を通過させて Cookie を得る（リダイレクトは追わない）
-  const age = await fetch(`https://www.dmm.co.jp/age_check/=/declared=yes/?rurl=${encodeURIComponent(pageUrl)}`, {
-    headers: baseHeaders, redirect: 'manual', signal: AbortSignal.timeout(30000),
-  });
-  const cookies = [];
-  const setCookies = typeof age.headers.getSetCookie === 'function' ? age.headers.getSetCookie() : [];
-  for (const c of setCookies) {
-    const [pair] = c.split(';');
-    const name = pair.split('=')[0].trim();
-    if (/^(ckcy|age_check_done|csrf)$/.test(name)) cookies.push(pair);
-  }
-  if (!cookies.length) cookies.push('age_check_done=1');
-  const r = await fetch(pageUrl, {
-    headers: { ...baseHeaders, Cookie: cookies.join('; ') },
-    redirect: 'follow', signal: AbortSignal.timeout(30000),
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status}: ${pageUrl}`);
-  return r.text();
-}
-
-// 一覧HTMLの CharacterItem アンカーからチャットルームURL・名前・サムネイル・視聴数を取る
-function parseDmmLivechatList(html, baseUrl) {
-  const out = [];
-  const seen = new Set();
-  for (const m of html.matchAll(/<a\b[^>]*href="([^"]*chat-room\/=\/character_id=(\d+)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi)) {
-    const id = m[2];
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const url = absolutize(m[1].replace(/&amp;/g, '&'), baseUrl);
-    if (!url) continue;
-    const inner = m[3];
-    const img = inner.match(/<img\b[^>]*>/i);
-    const src = img && (img[0].match(/\bsrc="([^"]+)"/i) || [])[1];
-    const alt = img && (img[0].match(/\balt="([^"]*)"/i) || [])[1];
-    const name = alt ? decodeEntities(alt).trim() : '';
-    const cnt = inner.match(new RegExp('id="count_' + id + '"[^>]*>\\s*(\\d+)'));
-    const viewers = cnt ? ` ・ 視聴${cnt[1]}` : '';
-    out.push({
-      url,
-      title: (name || `ID:${id}`) + viewers,
-      ...(src ? { thumb: src } : {}),
-    });
-  }
-  return out;
-}
-
-async function dmmLivechatList(pageUrl) {
-  // まずSSRページを取る（名前・サムネイル付き）。日本国外IPは地域制限で弾かれる
-  try {
-    const html = await dmmLivechatHtml(pageUrl);
-    const parsed = parseDmmLivechatList(html, pageUrl);
-    if (parsed.length) return parsed;
-  } catch { /* 地域制限等で取れなければAPIにフォールバック */ }
-  // /api/online-list/online-statuses は地域制限の対象外。
-  // character_id とステータス・視聴数だけ取れる（名前はSSR側のみ）
-  const lu = new URL(pageUrl);
-  const r = await fetch(`${lu.origin}/api/online-list/online-statuses`, {
-    headers: { 'User-Agent': UA, Cookie: 'age_check_done=1', 'X-Requested-With': 'XMLHttpRequest', Referer: pageUrl },
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status}: ${lu.origin}/api/online-list/online-statuses`);
-  const j = await r.json();
-  return (j.online_statuses || [])
-    .slice()
-    .sort((a, b) => (b.count || 0) - (a.count || 0))
-    .map((s) => ({
-      url: `https://www.dmm.co.jp/live/chat/-/chat-room/=/character_id=${s.character_id}/`,
-      title: `ID:${s.character_id} ・ ${s.chat_status_jp || ''} ・ 視聴${s.count || 0}`,
-      thumb: `https://pics.dmm.co.jp/livechat/${String(s.character_id).padStart(8, '0')}/profile_l.jpg`,
-    }));
-}
-
 // openload.mov の動画ページは eval packer で難読化され、
 // ストリームホスト（minochinos/streamtape/vsembed 等）の iframe URL を生成する。
 // radix が 36 を超えるため e() をその場で再現する（unpackPackedEval は 36 進 index 前提で使えない）
@@ -808,6 +729,14 @@ export function extractVideos(html, pageUrl) {
       const vid = text.match(/EP\.video\.player\.vid\s*=\s*'([^']+)'/)?.[1];
       const hash = text.match(/EP\.video\.player\.hash\s*=\s*'([^']+)'/)?.[1];
       if (vid && hash) return [{ type: 'eporner', id: `${vid}|${hash}` }];
+    }
+  } catch { /* ignore */ }
+
+  // FC2ライブの視聴ページは JS アプリなので embedPlayer の iframe 指定を返す
+  try {
+    if (/(^|\.)live\.fc2\.com$/i.test(new URL(pageUrl).hostname)) {
+      const lid = pageUrl.match(/\/(\d{5,})\//)?.[1];
+      if (lid) add({ type: 'fc2live', id: lid });
     }
   } catch { /* ignore */ }
 
@@ -1073,14 +1002,20 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           if (filter) body.links = body.links.filter((l) => filter.test(l.url));
           return { status: 200, body };
         }
-        // FANZAライブチャット (livechat.dmm.co.jp / www.dmm.co.jp/live/chat) は
-        // 年齢確認Cookie(ckcy/age_check_done)が必要なSSRページ。
-        // 一覧は CharacterItem の chat-room リンクから取る
-        if (/(^|\.)livechat\.dmm\.co\.jp$/i.test(lu.hostname)
-          || (/(^|\.)dmm\.co\.jp$/i.test(lu.hostname) && lu.pathname.startsWith('/live/chat'))) {
-          const links = await dmmLivechatList(url);
-          const filtered = filter ? links.filter((l) => filter.test(l.url + ' ' + l.title)) : links;
-          return { status: 200, body: { links: filtered, pagesFetched: 1, next: null } };
+        // FC2ライブは /adult/contents/allchannellist.php の JSON で配信中チャンネル一覧を返す
+        if (/^live\.fc2\.com$/i.test(lu.hostname)) {
+          const res = await fetch('https://live.fc2.com/adult/contents/allchannellist.php', {
+            headers: { 'User-Agent': UA, 'X-Requested-With': 'XMLHttpRequest', Referer: 'https://live.fc2.com/adult/' },
+            signal: AbortSignal.timeout(20000),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}: fc2 live list`);
+          const data = await res.json();
+          const links = (data.channel || []).map((c) => ({
+            url: `https://live.fc2.com/adult/${c.id}/`,
+            title: [c.name, c.title].filter(Boolean).join('：') + (c.count ? ` ・ 視聴${c.count}` : ''),
+            thumb: c.image || null,
+          }));
+          return { status: 200, body: { links, pagesFetched: 1, next: null } };
         }
       }
       const all = [];
@@ -1118,14 +1053,6 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           return { status: 200, body: { title: c?.title || '', videos } };
         }
       }
-      // FANZAライブチャットのルームページは WebRTC(Sora) 配信で直接再生できないため、
-      // ルームページ自体を iframe で埋め込む（type 'dmmchat'）。ライブなので終了イベントなし
-      {
-        const du = new URL(url);
-        if (/(^|\.)dmm\.co\.jp$/i.test(du.hostname) && /character_id=\d+/.test(du.pathname + du.search)) {
-          return { status: 200, body: { title: '', videos: [{ type: 'dmmchat', id: url }] } };
-        }
-      }
       // TXXX は API だけで mp4 直リンクを解決する（HTML は JS シェル）
       if (/(^|\.)txxx\.com$/i.test(new URL(url).hostname)) {
         return { status: 200, body: await txxxVideos(url, u.origin) };
@@ -1133,6 +1060,29 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       // 直リンクの m3u8（ライブHLS等）はページを取らずそのまま hls.js に渡す
       if (/\.m3u8(\?|$)/i.test(new URL(url).pathname)) {
         return { status: 200, body: { title: '', videos: [{ type: 'hls', id: url }] } };
+      }
+      // FC2ライブの視聴ページは配信が websocket+HLS で、ページ自体に動画URLがない。
+      // 公式 embedPlayer を iframe で埋め込む type 'fc2live' を返す
+      {
+        const lid = new URL(url).hostname === 'live.fc2.com' ? url.match(/\/(\d{5,})\//)?.[1] : null;
+        if (lid) {
+          let title = '';
+          try {
+            const r = await fetch('https://live.fc2.com/api/memberApi.php', {
+              method: 'POST',
+              headers: {
+                'User-Agent': UA, 'X-Requested-With': 'XMLHttpRequest', Referer: url,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: `channel=1&profile=1&user=1&streamid=${lid}`,
+              signal: AbortSignal.timeout(15000),
+            });
+            const j = await r.json();
+            const cd = j?.data?.channel_data || {};
+            title = [cd.title, cd.fee ? '（有料）' : ''].filter(Boolean).join(' ');
+          } catch { /* タイトルが取れなくても再生は可能 */ }
+          return { status: 200, body: { title, videos: [{ type: 'fc2live', id: lid }] } };
+        }
       }
       const html = await getPage(url);
       // Pornhub の動画ページは CDN の署名URLがIP紐付けでブラウザから取れないため、

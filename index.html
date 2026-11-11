@@ -138,7 +138,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.76</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.77</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -204,9 +204,10 @@
     <p>動画は自動で抽出されて再生キューに追加され、順番に再生が始まります。</p>
     <h3>対応サイト（プリセット）</h3>
     <ul>
-      <li>動画サイト：missav / xvideo-jp / openload / FC2動画 / DMM動画 / Pornhub / TXXX / FANZAライブチャット（ライブ配信）</li>
+      <li>動画サイト：missav / xvideo-jp / openload / FC2動画 / DMM動画 / Pornhub / TXXX</li>
       <li>Twitter/X動画まとめ：ToxicStream / おなりずむ / ポッカキット / 露出羞恥に魅せられて</li>
       <li>twi-dl / ヌキストリーム / monsnode / monsnodes / twihub</li>
+      <li>その他：FC2ライブ（アダルト配信） / Spankbang</li>
     </ul>
     <h3>主な操作</h3>
     <ul>
@@ -317,11 +318,11 @@ const PRESET_GROUPS = [
     { label: 'Japanese', url: 'https://www.pornhub.com/video?c=111' },
     { label: '人気', url: 'https://www.pornhub.com/video?o=mv' },
   ]},
+  { site: 'FC2ライブ', domain: 'live.fc2.com', siteUrl: 'https://live.fc2.com/adult/?lang=ja', group: 'その他', items: [
+    { label: 'アダルト配信一覧', url: 'https://live.fc2.com/adult/?lang=ja' },
+  ]},
   { site: 'Spankbang', domain: 'spankbang.com', siteUrl: 'https://okcysk.github.io/spankbangMultiPlayer/', group: 'その他', items: [
     { label: 'マルチプレイヤー', url: 'https://okcysk.github.io/spankbangMultiPlayer/', external: true },
-  ]},
-  { site: 'FANZAライブチャット', domain: 'livechat.dmm.co.jp', siteUrl: 'https://livechat.dmm.co.jp/', group: 'その他', items: [
-    { label: 'オンライン', url: 'https://livechat.dmm.co.jp/' },
   ]},
 ];
 
@@ -419,13 +420,11 @@ function makeSlot() {
     yt: null, ytReady: false, ytPending: null, vimeo: null, videoEl: null, hls: null,
     embed: null, fallbackTimer: null, rateTimer: null };
   // フォールバック iframe は普段クリックを透過するが、ステージをクリックすると
-  // 一時的に iframe 内を操作できる（自動再生がブロックされた時の再生ボタン・年齢確認用）。
-  // dmmchat は年齢確認の読み取り時間を考えて長めにする
+  // 一時的に iframe 内を操作できる（自動再生がブロックされた時の再生ボタン用）
   stage.addEventListener('pointerdown', () => {
     stage.classList.add('interactive');
     clearTimeout(stage._ipTimer);
-    const ms = slot.video?.type === 'dmmchat' ? 60000 : 8000;
-    stage._ipTimer = setTimeout(() => stage.classList.remove('interactive'), ms);
+    stage._ipTimer = setTimeout(() => stage.classList.remove('interactive'), 8000);
   });
   return slot;
 }
@@ -694,7 +693,7 @@ function slotLoad(s, qi, resume = 0) {
   else if (v.type === 'vimeo') slotPlayVimeo(s, v);
   else if (v.type === 'file') slotPlayFile(s, v);
   else if (v.type === 'hls') slotPlayHls(s, v);
-  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow' || v.type === 'openload' || v.type === 'dmmchat') slotPlayFrame(s, v);
+  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow' || v.type === 'openload' || v.type === 'fc2live') slotPlayFrame(s, v);
   else if (embedAdapters[v.type]) slotPlayEmbed(s, v);
   else s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
   scheduleRelayout();
@@ -802,12 +801,12 @@ function slotPlayFrame(s, v) {
   f.src = v.type === 'openload' ? v.id
     : v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
     : v.type === 'javynow' ? `https://javynow.com/player/${v.id}/`
-    : v.type === 'dmmchat' ? v.id
+    : v.type === 'fc2live' ? `https://live.fc2.com/embedPlayer/?id=${v.id}&lang=ja&suggest=0&thumbnail=1&adultaccess=1`
     : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
   f.allow = 'autoplay; fullscreen; picture-in-picture';
   s.stage.appendChild(f);
-  // dmmchat はライブ配信で終了がないためタイムアウト自動送りはしない（B/Nで手動送り）
-  if (v.type !== 'dmmchat') s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
+  // FC2ライブは終了のないライブ配信なのでタイムアウトでの自動送りはしない
+  if (v.type !== 'fc2live') s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
 }
 
 function slotPlayEmbed(s, v) {
