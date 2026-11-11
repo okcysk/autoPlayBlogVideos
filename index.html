@@ -138,7 +138,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.75</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.76</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -414,17 +414,20 @@ const focusSlot = () => slots[focusIdx] || slots[0];
 function makeSlot() {
   const stage = document.createElement('div');
   stage.className = 'cellStage';
-  // フォールバック iframe は普段クリックを透過するが、ステージをクリックすると
-  // 8秒間だけ iframe 内を操作できる（自動再生がブロックされた時の再生ボタン用）
-  stage.addEventListener('pointerdown', () => {
-    stage.classList.add('interactive');
-    clearTimeout(stage._ipTimer);
-    stage._ipTimer = setTimeout(() => stage.classList.remove('interactive'), 8000);
-  });
-  return { stage, rect: null, video: null, qi: -1, lastQi: -1, kind: null, resumeTime: 0, orient: 'h',
+  const slot = { stage, rect: null, video: null, qi: -1, lastQi: -1, kind: null, resumeTime: 0, orient: 'h',
     prefs: { volume: prefs.volume, muted: prefs.muted, rate: 1 },
     yt: null, ytReady: false, ytPending: null, vimeo: null, videoEl: null, hls: null,
     embed: null, fallbackTimer: null, rateTimer: null };
+  // フォールバック iframe は普段クリックを透過するが、ステージをクリックすると
+  // 一時的に iframe 内を操作できる（自動再生がブロックされた時の再生ボタン・年齢確認用）。
+  // dmmchat は年齢確認の読み取り時間を考えて長めにする
+  stage.addEventListener('pointerdown', () => {
+    stage.classList.add('interactive');
+    clearTimeout(stage._ipTimer);
+    const ms = slot.video?.type === 'dmmchat' ? 60000 : 8000;
+    stage._ipTimer = setTimeout(() => stage.classList.remove('interactive'), ms);
+  });
+  return slot;
 }
 
 // ---- レイアウト ----
