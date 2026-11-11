@@ -1010,7 +1010,9 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}: fc2 live list`);
           const data = await res.json();
-          const links = (data.channel || []).map((c) => ({
+          // login: 0=誰でも視聴可 / 1=ログイン限定 / 2=ポイント所持限定。
+          // ログイン・ポイントが必要な部屋は iframe 内で視聴できないため login==0 のみに絞る
+          const links = (data.channel || []).filter((c) => c.login === 0).map((c) => ({
             url: `https://live.fc2.com/adult/${c.id}/`,
             title: [c.name, c.title].filter(Boolean).join('：') + (c.count ? ` ・ 視聴${c.count}` : ''),
             thumb: c.image || null,
