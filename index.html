@@ -142,7 +142,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.89</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.90</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -154,7 +154,7 @@
 </header>
 <main>
   <section>
-    <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="16" value="4" title="同時再生数（1-16）"><button id="scrPlus" title="画面を増やす">＋</button></span><span class="barSep"></span><button id="prev" title="前の動画">⏮</button><button id="next" title="次の動画">⏭</button><label class="barChk"><input type="checkbox" id="shuffle"> シャッフル</label><a id="nowArticle" class="barLink" href="#" target="_blank" rel="noopener" hidden>記事を開く ↗</a><button id="copyLink" title="現在のURLをコピー">リンクをコピー</button><button id="fsBtn" type="button" title="動画エリアを全画面化">⛶ 全画面</button></div>
+    <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="16" value="4" title="同時再生数（1-16）"><button id="scrPlus" title="画面を増やす">＋</button></span><span class="barSep"></span><button id="prev" title="前の動画">⏮</button><button id="next" title="次の動画">⏭</button><label class="barChk"><input type="checkbox" id="shuffle"> シャッフル</label><a id="nowArticle" class="barLink" href="#" target="_blank" rel="noopener" hidden>記事を開く ↗</a><button id="copyLink" title="現在のURLをコピー">リンクをコピー</button><button id="shareX" type="button" title="Xで共有">𝕏 共有</button><button id="fsBtn" type="button" title="動画エリアを全画面化">⛶ 全画面</button></div>
     <div id="stageWrap"><div id="grid"></div><div id="focusRing"></div><div id="osd"></div></div>
     <div id="info">
     <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
@@ -1307,16 +1307,20 @@ document.addEventListener('fullscreenchange', () => {
   scheduleRelayout();
 });
 
-// 現在のURLをコピーする。チェックを外すと ?st=（各動画の状態）を除いた
+// 共有用URLを組み立てる。チェックを外すと ?st=（各動画の状態）を除いた
 // 一覧読み込み用リンク（url/pages/filter/n）だけになる
-$('copyLink').onclick = async () => {
+function shareUrl() {
   const u = new URL(location.href);
   if (!$('copyFull').checked) {
     u.searchParams.delete('st');
     // 動画情報を含めない場合も同時再生数は引き継ぐ
     u.searchParams.set('n', String(multiCount));
   }
-  const text = u.href;
+  return u.href;
+}
+
+$('copyLink').onclick = async () => {
+  const text = shareUrl();
   try {
     await navigator.clipboard.writeText(text);
     osd('リンクをコピーしました');
@@ -1329,6 +1333,13 @@ $('copyLink').onclick = async () => {
     catch { prompt('コピーしてください', text); }
     ta.remove();
   }
+};
+
+// X（旧Twitter）の投稿画面を開く。URLは「リンクをコピー」と同じ共有URL
+$('shareX').onclick = () => {
+  const url = shareUrl();
+  const text = '動画サイト複数再生で動画をまとめて再生';
+  window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`, '_blank', 'noopener');
 };
 
 setMultiCount(4);
