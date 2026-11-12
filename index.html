@@ -60,10 +60,15 @@
   .cellStage.interactive iframe.np { pointer-events:auto; }
   #info { flex:none; }
   #now { margin:6px 0 2px; font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #advSettings { font-size:12px; color:var(--muted); margin-top:2px; }
-  #advSettings summary { cursor:pointer; user-select:none; }
-  #advSettings .advBody { display:flex; gap:14px; flex-wrap:wrap; align-items:center; padding:6px 0 2px; }
-  #advSettings label { display:flex; gap:6px; align-items:center; }
+  #footPanel { flex:none; border-top:1px solid var(--line); padding:4px 16px 8px; font-size:12px; }
+  #footPanel summary { font-size:11px; color:var(--muted); cursor:pointer; user-select:none; }
+  #footPanel summary:hover { color:var(--text); }
+  #footPanel .fpBody { margin-top:8px; display:flex; flex-direction:column; gap:12px; }
+  #footPanel .fpSec { border-top:1px dashed var(--line); padding-top:8px; }
+  #footPanel .fpSec:first-child { border-top:none; padding-top:0; }
+  #footPanel .fpTitle { font-size:11px; font-weight:700; color:var(--accent); letter-spacing:.06em; margin-bottom:6px; }
+  #footPanel .fpRow { display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+  #footPanel label { display:flex; gap:6px; align-items:center; color:var(--muted); }
   #status { color:var(--muted); font-size:12px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   footer { display:flex; gap:16px; justify-content:center; padding:2px 0 14px; color:var(--muted); font-size:12px; }
   footer a { color:var(--muted); }
@@ -80,6 +85,7 @@
   li { padding:8px 12px; border-bottom:1px solid var(--line); cursor:pointer; display:flex; gap:10px; }
   li:hover { background:#232a33; }
   li.active { background:#203048; }
+  li.qfocus { outline:1px solid var(--accent); outline-offset:-1px; }
   li img { width:96px; height:54px; object-fit:cover; border-radius:4px; flex:none; background:#000; }
   li .t { font-size:12px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
   li .k { color:var(--muted); font-size:11px; }
@@ -128,14 +134,12 @@
   #helpBox ul { margin:4px 0; padding-left:20px; }
   #helpClose { position:absolute; top:8px; right:10px; background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; padding:2px 6px; }
   #helpClose:hover { color:var(--text); }
-  /* フッターのサービス説明文（折りたたみ） */
-  #about { flex:none; border-top:1px solid var(--line); padding:4px 16px 8px; }
-  #about summary { font-size:11px; color:var(--muted); cursor:pointer; }
-  #about summary:hover { color:var(--text); }
-  #about .aboutBody { font-size:11px; color:var(--muted); margin:6px 0 0; }
-  #about .aboutBody p { margin:0 0 6px; }
-  #about .aboutBody ul { margin:0; padding-left:16px; }
-  #about .aboutBody li { margin:0 0 2px; }
+  /* フッターパネル内のサービス説明文 */
+  .aboutBody { font-size:11px; color:var(--muted); }
+  .aboutBody p { margin:0 0 6px; }
+  .aboutBody ul { margin:0; padding-left:16px; }
+  .aboutBody li { margin:0 0 2px; }
+  #keys { margin:0; text-align:left; border-top:none; padding-top:0; }
 </style>
 <meta name="google-site-verification" content="LyRfDuRUYksJZFUhuVmuxtJTpkZJOUPSd-Jtx4OINSE" />
 <script async src="https://adm.shinobi.jp/st/auto.js" data-admax-id="e9f2b72c45a21d3ae2ed4d9b1797bf35"></script>
@@ -145,7 +149,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.82</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.83</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -161,13 +165,6 @@
     <div id="stageWrap"><div id="grid"></div><div id="focusRing"></div><div id="osd"></div></div>
     <div id="info">
     <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
-    <details id="advSettings"><summary>詳細設定</summary>
-      <div class="advBody">
-        <label>記事URLの正規表現 <input id="filter" placeholder="任意"></label>
-        <label>埋め込み不明動画の自動送り <input id="timeout" type="number" min="10" value="180" style="width:72px">秒</label>
-        <label><input type="checkbox" id="copyFull" checked> リンクに再生中の動画情報を含める</label>
-      </div>
-    </details>
     <div id="status"></div>
     </div>
   </section>
@@ -176,25 +173,41 @@
     <ol id="queue"></ol>
   </aside>
 </main>
-<div id="keys"><kbd>1</kbd>-<kbd>9</kbd> 同時再生数 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> フォーカス移動 · <kbd>Shift</kbd>+各キーで全画面に適用 · <kbd>B</kbd>/<kbd>N</kbd> 前後の動画 · <kbd>Z</kbd>/<kbd>X</kbd> 5秒 · <kbd>C</kbd>/<kbd>V</kbd> 30秒 · <kbd>↑</kbd>/<kbd>↓</kbd> 音量±10% · <kbd>M</kbd> ミュート · <kbd>F</kbd> 等速 · <kbd>G</kbd> 2.5倍⇄等速 · <kbd>H</kbd> 10倍⇄等速 · <kbd>T</kbd> 全画面 · <kbd>Space</kbd> 再生/停止</div>
+<details id="footPanel">
+  <summary>詳細設定・キー操作・このツールについて</summary>
+  <div class="fpBody">
+    <div class="fpSec">
+      <div class="fpTitle">詳細設定</div>
+      <div class="fpRow">
+        <label>記事URLの正規表現 <input id="filter" placeholder="任意"></label>
+        <label>自動送り <input id="timeout" type="number" min="10" value="180" style="width:72px">秒</label>
+        <label><input type="checkbox" id="copyFull" checked> リンクに再生中の動画情報を含める</label>
+      </div>
+    </div>
+    <div class="fpSec">
+      <div class="fpTitle">キー操作</div>
+      <div id="keys"><kbd>1</kbd>-<kbd>9</kbd> 同時再生数 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> フォーカス移動 · <kbd>Shift</kbd>+各キーで全画面に適用 · <kbd>B</kbd>/<kbd>N</kbd> 前後の動画 · <kbd>Z</kbd>/<kbd>X</kbd> 5秒 · <kbd>C</kbd>/<kbd>V</kbd> 30秒 · <kbd>↑</kbd>/<kbd>↓</kbd> 音量±10% · <kbd>M</kbd> ミュート · <kbd>F</kbd> 等速 · <kbd>G</kbd> 2.5倍⇄等速 · <kbd>H</kbd> 10倍⇄等速 · <kbd>T</kbd> 全画面 · <kbd>Space</kbd> 再生/停止</div>
+    </div>
+    <div class="fpSec">
+      <div class="fpTitle">このツールについて</div>
+      <div class="aboutBody">
+        <p>「動画サイト複数再生」は、ブログ記事や動画まとめサイトの一覧ページURLを入力するだけで、ページ内の記事から動画を自動で抽出し、連続再生や複数画面での同時再生ができる無料のブラウザツールです。FC2動画・DMM動画・xvideo-jp・openload・missav・Pornhub・TXXX・twihub・twi-dl・ヌキストリーム・monsnode・monsnodes・ToxicStream・おなりずむ・ポッカキット・露出羞恥に魅せられて など、複数の動画サイトに対応しています。キーボードだけで再生・一時停止・シーク・音量・再生速度の操作ができ、シャッフル再生やサムネイル付きの再生キュー、URLを共有して同じ再生状態を再現する機能も備えています。</p>
+        <p>使い方は簡単です。対応サイトの一覧ページ（カテゴリ・検索結果・ランキングなど）のURLを入力欄に貼り付け、必要に応じてページ数と記事URLの絞り込み正規表現を指定して「読み込んで再生」を押すだけです。抽出された動画は自動で再生キューに追加され、再生が始まります。</p>
+        <ul>
+          <li>複数の動画サイトに対応（プリセットからワンクリックで読み込み）</li>
+          <li>同時再生数は画面上部の「−」「＋」または数字キー 1〜9 で変更（10〜16は数値入力欄で指定）</li>
+          <li>キーボード操作：WASDでフォーカス移動、Spaceで再生/停止、B/Nで前後の動画、↑↓で音量、Mでミュート、F/G/Hで再生速度</li>
+          <li>「リンクをコピー」で現在の再生状態をURLとして共有可能</li>
+          <li>iframe埋め込み型の動画は一部操作（シーク等）が制限される場合があります</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</details>
 <footer>
   <a href="mailto:okcysk@gmail.com">okcysk@gmail.com</a>
   <a href="https://x.com/okcysk46770" target="_blank" rel="noopener">X: @okcysk46770</a>
 </footer>
-<details id="about">
-  <summary>このツールについて</summary>
-  <div class="aboutBody">
-    <p>「動画サイト複数再生」は、ブログ記事や動画まとめサイトの一覧ページURLを入力するだけで、ページ内の記事から動画を自動で抽出し、連続再生や複数画面での同時再生ができる無料のブラウザツールです。FC2動画・DMM動画・xvideo-jp・openload・missav・Pornhub・TXXX・twihub・twi-dl・ヌキストリーム・monsnode・monsnodes・ToxicStream・おなりずむ・ポッカキット・露出羞恥に魅せられて など、複数の動画サイトに対応しています。キーボードだけで再生・一時停止・シーク・音量・再生速度の操作ができ、シャッフル再生やサムネイル付きの再生キュー、URLを共有して同じ再生状態を再現する機能も備えています。</p>
-    <p>使い方は簡単です。対応サイトの一覧ページ（カテゴリ・検索結果・ランキングなど）のURLを入力欄に貼り付け、必要に応じてページ数と記事URLの絞り込み正規表現を指定して「読み込んで再生」を押すだけです。抽出された動画は自動で再生キューに追加され、再生が始まります。</p>
-    <ul>
-      <li>複数の動画サイトに対応（プリセットからワンクリックで読み込み）</li>
-      <li>同時再生数は画面上部の「−」「＋」または数字キー 1〜9 で変更（10〜16は数値入力欄で指定）</li>
-      <li>キーボード操作：WASDでフォーカス移動、Spaceで再生/停止、B/Nで前後の動画、↑↓で音量、Mでミュート、F/G/Hで再生速度</li>
-      <li>「リンクをコピー」で現在の再生状態をURLとして共有可能</li>
-      <li>iframe埋め込み型の動画は一部操作（シーク等）が制限される場合があります</li>
-    </ul>
-  </div>
-</details>
 </div>
 
 <div id="helpModal" hidden>
@@ -593,7 +606,18 @@ function updateFocus() {
     ring.style.left = css.left; ring.style.top = css.top;
     ring.style.width = css.width; ring.style.height = css.height;
   } else ring.style.display = 'none';
+  const qi = s?.qi ?? -1;
+  $('queue').querySelectorAll('li.qfocus').forEach((el) => el.classList.remove('qfocus'));
+  if (qi >= 0) $('queue').querySelector(`li[data-qi="${qi}"]`)?.classList.add('qfocus');
   updateNow();
+}
+
+// キュー項目にカーソルを合わせると、その動画を再生中のスロットにフォーカスを移す
+function focusQueueItem(qi) {
+  const si = slots.findIndex((s) => s && s.qi === qi);
+  if (si < 0) return;
+  focusIdx = si;
+  updateFocus();
 }
 
 // 矩形レイアウトでは列数が一定でないため、フォーカス移動は
@@ -882,6 +906,7 @@ function renderQueue() {
     li.innerHTML = `${thumb(v) ? `<img loading="lazy" src="${thumb(v)}" alt="">` : ''}<div><div class="t"></div><div class="k">${v.type}</div></div>`;
     li.querySelector('.t').textContent = v.title || v.article;
     li.onclick = () => slotPlayIndex(focusSlot(), i);
+    li.onmouseenter = () => focusQueueItem(i);
     const del = document.createElement('button');
     del.className = 'del'; del.textContent = '×'; del.title = 'キューから削除';
     del.onclick = (e) => { e.stopPropagation(); removeQueueItem(i); };
@@ -889,7 +914,10 @@ function renderQueue() {
     ol.appendChild(li);
   });
   const qi = focusSlot()?.qi;
-  if (qi >= 0 && !queue[qi]?.removed) ol.querySelector(`[data-qi="${qi}"]`)?.scrollIntoView({ block: 'nearest' });
+  ol.querySelectorAll('li.qfocus').forEach((el) => el.classList.remove('qfocus'));
+  const cur = qi >= 0 && !queue[qi]?.removed ? ol.querySelector(`li[data-qi="${qi}"]`) : null;
+  cur?.classList.add('qfocus');
+  if (cur) cur.scrollIntoView({ block: 'nearest' });
 }
 
 // 次の一覧ページを1ページ分だけ取得して抽出待ちキューに追加する
