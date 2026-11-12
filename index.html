@@ -69,7 +69,6 @@
   #footPanel .fpTitle { font-size:11px; font-weight:700; color:var(--accent); letter-spacing:.06em; margin-bottom:6px; }
   #footPanel .fpRow { display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
   #footPanel label { display:flex; gap:6px; align-items:center; color:var(--muted); }
-  #status { color:var(--muted); font-size:12px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   footer { display:flex; gap:16px; justify-content:center; padding:2px 0 14px; color:var(--muted); font-size:12px; }
   footer a { color:var(--muted); }
   aside { min-height:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:auto; }
@@ -148,7 +147,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.85</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.86</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -164,7 +163,6 @@
     <div id="stageWrap"><div id="grid"></div><div id="focusRing"></div><div id="osd"></div></div>
     <div id="info">
     <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
-    <div id="status"></div>
     </div>
   </section>
   <aside>
@@ -409,7 +407,7 @@ function selectPreset(p) {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) modal.hidden = true; });
 })();
 
-function setStatus(s) { $('status').textContent = s; }
+function setStatus(s) { console.info(s); }
 
 function thumb(v) {
   if (v.thumb) return v.thumb;
