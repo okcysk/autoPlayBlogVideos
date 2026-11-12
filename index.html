@@ -152,7 +152,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.96</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.97</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -1354,7 +1354,7 @@ $('copyLink').onclick = async () => {
 // X（旧Twitter）の投稿画面を開く。URLは「リンクをコピー」と同じ共有URL
 $('shareX').onclick = () => {
   const url = shareUrl();
-  const text = '動画サイト複数再生で動画をまとめて再生';
+  const text = '動画サイト複数再生で動画をまとめて再生 #AutoPlayBlogVideos';
   window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`, '_blank', 'noopener');
 };
 
