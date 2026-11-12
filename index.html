@@ -64,7 +64,7 @@
   footer a { color:var(--muted); flex:none; }
   footer a:hover { color:var(--text); }
   aside { min-height:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:auto; }
-  #queueToggle { display:none; }
+  #queueToggle, #qClose { display:none; }
   @media (max-width: 900px) {
     main { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); padding:8px; gap:8px; }
     #stageWrap { flex:none; height:60vh; }
@@ -80,7 +80,7 @@
     #keys { display:none; }
   }
   aside h2 { font-size:13px; margin:0; padding:10px 12px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); display:flex; align-items:center; justify-content:space-between; }
-  #qClose { display:none; background:none; border:none; color:var(--muted); font-size:16px; cursor:pointer; padding:0 4px; }
+  #qClose { background:none; border:none; color:var(--muted); font-size:16px; cursor:pointer; padding:0 4px; }
   #qClose:hover { color:var(--text); }
   ol { list-style:none; margin:0; padding:0; }
   li { padding:8px 12px; border-bottom:1px solid var(--line); cursor:pointer; display:flex; gap:10px; }
@@ -152,7 +152,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.95</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.96</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
