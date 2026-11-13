@@ -152,7 +152,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.99</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.100</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -268,6 +268,7 @@ const PRESET_GROUPS = [
     { label: '一覧', url: 'https://roshutu-shuuti.net/' },
   ]},
   { site: 'ヌキストリーム', domain: 'www.nukistream.com', siteUrl: 'https://www.nukistream.com/', group: 'ツイート動画まとめブログ', items: [
+    { label: 'トップ', url: 'https://www.nukistream.com/', filter: 'video\\.php\\?id=' },
     { label: '動画一覧', url: 'https://www.nukistream.com/category.php?id=41', filter: 'video\\.php\\?id=' },
   ]},
   { site: 'twi-dl', domain: 'www.twi-dl.net', siteUrl: 'https://www.twi-dl.net/', group: '動画リンク集・ランキング', items: [
