@@ -152,7 +152,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.103</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.104</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -164,7 +164,7 @@
 </header>
 <main>
   <section>
-    <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="16" value="4" title="同時再生数（1-16）"><button id="scrPlus" title="画面を増やす">＋</button></span><span class="barSep"></span><button id="prev" title="前の動画">⏮</button><button id="next" title="次の動画">⏭</button><label class="barChk"><input type="checkbox" id="shuffle"> シャッフル</label><span class="barSep"></span><button data-dir="left" title="フォーカスを左へ">←</button><button data-dir="right" title="フォーカスを右へ">→</button><button data-dir="up" title="フォーカスを上へ">↑</button><button data-dir="down" title="フォーカスを下へ">↓</button><a id="nowArticle" class="barLink" href="#" target="_blank" rel="noopener" hidden>記事を開く ↗</a><button id="copyLink" title="現在のURLをコピー">リンクをコピー</button><button id="shareX" type="button" title="Xで共有">𝕏 共有</button><button id="queueToggle" type="button" title="再生キューの表示切替">☰ キュー</button><button id="fsBtn" type="button" title="動画エリアを全画面化">⛶ 全画面</button></div>
+    <div id="screenBar"><span>同時再生数</span><span id="screenCtl"><button id="scrMinus" title="画面を減らす">−</button><input id="scrCount" type="number" min="1" max="16" value="4" title="同時再生数（1-16）"><button id="scrPlus" title="画面を増やす">＋</button></span><span class="barSep"></span><button id="prev" title="前の動画">⏮</button><button id="next" title="次の動画">⏭</button><label class="barChk"><input type="checkbox" id="shuffle"> シャッフル</label><label class="barChk"><input type="checkbox" id="autoLayout" checked> 自動レイアウト</label><span class="barSep"></span><button data-dir="left" title="フォーカスを左へ">←</button><button data-dir="right" title="フォーカスを右へ">→</button><button data-dir="up" title="フォーカスを上へ">↑</button><button data-dir="down" title="フォーカスを下へ">↓</button><a id="nowArticle" class="barLink" href="#" target="_blank" rel="noopener" hidden>記事を開く ↗</a><button id="copyLink" title="現在のURLをコピー">リンクをコピー</button><button id="shareX" type="button" title="Xで共有">𝕏 共有</button><button id="queueToggle" type="button" title="再生キューの表示切替">☰ キュー</button><button id="fsBtn" type="button" title="動画エリアを全画面化">⛶ 全画面</button></div>
     <div id="stageWrap"><div id="grid"></div><div id="focusRing"></div><div id="osd"></div></div>
     <div id="info">
     <div id="now">一覧URLを入力して「読み込んで再生」を押してください</div>
@@ -512,7 +512,8 @@ function scheduleRelayout() {
 function rebuildLayout() {
   const grid = $('grid');
   const ca = grid.clientHeight ? grid.clientWidth / grid.clientHeight : 16 / 9;
-  const items = buildItems();
+  // 自動レイアウトOFF時は縦型ペア分割をせず、全スロットを通常グリッドに並べる
+  const items = $('autoLayout').checked ? buildItems() : slots.map((s) => ({ type: 'single', slots: [s] }));
   const pairs = items.filter((i) => i.type === 'pair');
   const singles = items.filter((i) => i.type === 'single');
   const full = { x: 0, y: 0, w: 1, h: 1 };
@@ -1308,6 +1309,7 @@ setInterval(() => {
 $('next').onclick = () => skipSlot(focusSlot());
 $('prev').onclick = () => prevSlot(focusSlot());
 document.querySelectorAll('#screenBar [data-dir]').forEach((b) => { b.onclick = () => moveFocus(b.dataset.dir); });
+$('autoLayout').onchange = () => rebuildLayout();
 $('queueToggle').onclick = () => document.body.classList.toggle('queueOpen');
 $('qClose').onclick = () => document.body.classList.remove('queueOpen');
 $('scrMinus').onclick = () => setMultiCount(multiCount - 1);
