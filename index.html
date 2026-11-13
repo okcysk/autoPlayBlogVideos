@@ -152,7 +152,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.104</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.105</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -501,6 +501,28 @@ function layoutRows(items, rect, rows) {
   }
 }
 
+// 行数を総当たりで決める。セルのアスペクトが目標に近いことに加え、
+// 段ごとのアイテム数が偏る配置（例: 4本を 2+1+1）にはペナルティを掛け、
+// 2×2 のような均等な段組みを優先する
+function bestRows(n, ca, targetAR) {
+  let best = 1, bs = Infinity;
+  const pen = 2 * targetAR;
+  for (let r = 1; r <= n; r++) {
+    const base = Math.floor(n / r), rem = n % r;
+    let err = 0, mn = Infinity, mx = 0;
+    for (let row = 0; row < r; row++) {
+      const cnt = base + (row < rem ? 1 : 0);
+      const cellA = (ca * r) / cnt;
+      err += cnt * Math.abs(cellA - targetAR);
+      if (cnt < mn) mn = cnt;
+      if (cnt > mx) mx = cnt;
+    }
+    const score = err + pen * (mx - mn);
+    if (score < bs) { bs = score; best = r; }
+  }
+  return best;
+}
+
 let layoutTimer = null;
 function scheduleRelayout() {
   clearTimeout(layoutTimer);
@@ -519,19 +541,19 @@ function rebuildLayout() {
   const full = { x: 0, y: 0, w: 1, h: 1 };
   if (!pairs.length) {
     // 縦型ペアなし: 全て通常セル。セルの目標アスペクトを 16:9 として行数を決める
-    const rows = Math.max(1, Math.round(Math.sqrt(singles.length * (16 / 9) / ca)));
+    const rows = bestRows(singles.length, ca, 16 / 9);
     layoutRows(singles, full, rows);
   } else {
     // 通常:縦型ペア = 動画数比で画面を左右に分割
     const frac = singles.length / (singles.length + pairs.length * 2);
     if (singles.length) {
       const za = frac * ca;
-      const rows = Math.max(1, Math.round(Math.sqrt(singles.length * (16 / 9) / za)));
+      const rows = bestRows(singles.length, za, 16 / 9);
       layoutRows(singles, { x: 0, y: 0, w: frac, h: 1 }, rows);
     }
     const pa = (1 - frac) * ca;
     // ペアセル（縦型2本を左右に並べた形）の目標アスペクトを約 9:8 として行数を決める
-    const rows = Math.max(1, Math.round(Math.sqrt(pairs.length * 1.125 / pa)));
+    const rows = bestRows(pairs.length, pa, 1.125);
     layoutRows(pairs, { x: frac, y: 0, w: 1 - frac, h: 1 }, rows);
   }
   for (const s of slots) {
