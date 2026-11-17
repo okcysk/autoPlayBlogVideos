@@ -49,7 +49,7 @@
   /* 同時再生スロット。各 .cellStage はJSが矩形(left/top/w/h)を直接指定する。
      縦型ペアは2つのステージを左右に並べて表現する */
   #grid { position:relative; width:100%; height:100%; }
-  .cellStage { position:absolute; background:#000; border-radius:8px; overflow:hidden; }
+  .cellStage { position:absolute; background:#000; border-radius:8px; overflow:hidden; transition:left .25s ease, top .25s ease, width .25s ease, height .25s ease; }
   .cellStage > * { position:absolute; inset:0; width:100%; height:100%; border:0; }
   .cellStage video { object-fit:contain; }
   /* フォーカス枠は単一要素をフォーカス中スロットの矩形に合わせて移動させる */
@@ -152,7 +152,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.109</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.110</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
