@@ -157,7 +157,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.111</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.112</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -470,14 +470,17 @@ function noteOrient(s) {
   if (!el || !el.videoWidth) return;
   const o = el.videoWidth > el.videoHeight ? 'h' : 'v';
   s.orient = o;
-  if (s.video) s.video.orient = o;
+  s.vratio = el.videoHeight / el.videoWidth;
+  if (s.video) { s.video.orient = o; s.video.vratio = s.vratio; }
   rebuildLayout();
 }
 
-// ペアは「縦型スロットをスロット順に2本ずつ」。奇数の余りは通常セル扱い。
-// レイアウトでは通常項目を先・ペアを後に並べ、ペア同士がまとまるようにする
+// ペアは「縦型スロットを縦横比の大きい順に2本ずつ」。奇数の余りは
+// 最も縦長でないものが通常セル扱いになる。レイアウトでは通常項目を先・
+// ペアを後に並べ、ペア同士がまとまるようにする
 function buildItems() {
-  const por = slots.filter(slotPortrait);
+  const por = slots.filter(slotPortrait)
+    .sort((a, b) => (b.vratio ?? 2) - (a.vratio ?? 2));
   const partner = new Map();
   for (let i = 0; i + 1 < por.length; i += 2) {
     partner.set(por[i], por[i + 1]);
