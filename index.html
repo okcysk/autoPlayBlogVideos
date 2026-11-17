@@ -58,6 +58,11 @@
      ステージをクリックすると .interactive が付き、一時的に iframe を操作できる */
   .cellStage iframe.np { pointer-events:none; }
   .cellStage.interactive iframe.np { pointer-events:auto; }
+  /* セルの読み込み中オーバーレイ */
+  .cellLoading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.45); z-index:1; pointer-events:none; }
+  .cellLoading[hidden] { display:none; }
+  .cellLoading .spin { width:34px; height:34px; border:3px solid rgba(255,255,255,.25); border-top-color:#fff; border-radius:50%; animation:cellspin .8s linear infinite; }
+  @keyframes cellspin { to { transform:rotate(360deg); } }
   #info { flex:none; }
   #now { margin:6px 0 2px; font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:4px 16px; padding:6px 16px 14px; color:var(--muted); font-size:12px; border-top:1px solid var(--line); }
@@ -152,7 +157,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.110</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.111</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -429,6 +434,13 @@ function makeSlot() {
     prefs: { volume: prefs.volume, muted: prefs.muted, rate: 1 },
     yt: null, ytReady: false, ytPending: null, vimeo: null, videoEl: null, hls: null,
     embed: null, fallbackTimer: null, rateTimer: null };
+  // 読み込み中スピナー。clearSlotMedia が innerHTML を消すので都度付け直す
+  const loader = document.createElement('div');
+  loader.className = 'cellLoading';
+  loader.hidden = true;
+  loader.innerHTML = '<div class="spin"></div>';
+  slot.loader = loader;
+  stage.appendChild(loader);
   // フォールバック iframe は普段クリックを透過するが、ステージをクリックすると
   // 一時的に iframe 内を操作できる（自動再生がブロックされた時の再生ボタン用）
   stage.addEventListener('pointerdown', () => {
@@ -687,6 +699,8 @@ function clearSlotMedia(s) {
   try { s.vimeo && (s.vimeo.destroy ? s.vimeo.destroy() : s.vimeo.unload()); } catch {}
   try { s.hls && s.hls.destroy(); } catch {}
   s.stage.innerHTML = '';
+  s.stage.appendChild(s.loader);
+  s.loader.hidden = true;
   s.yt = s.vimeo = s.videoEl = s.embed = s.hls = null;
   s.ytReady = false; s.ytPending = null;
 }
@@ -722,12 +736,16 @@ function pump() {
   updateNow();
 }
 
+// セルの読み込み中オーバーレイの表示切替
+function slotLoading(s, on) { if (s.loader) s.loader.hidden = !on; }
+
 function slotLoad(s, qi, resume = 0) {
   const v = queue[qi];
   if (!v) return;
   fedSet.add(qi); playingIdx.add(qi);
   s.qi = qi; s.lastQi = qi; s.video = v;
   clearSlotMedia(s);
+  slotLoading(s, true);
   s.kind = v.type;
   s.resumeTime = resume;
   // 前回の判定結果があれば即座に縦横を反映し、なければ横型として扱う
@@ -766,7 +784,8 @@ function slotPlayYoutube(s, v) {
       },
       onStateChange: (e) => {
         if (e.data === YT.PlayerState.ENDED) slotDone(s);
-        else if (e.data === YT.PlayerState.PLAYING) applySlotPrefs(s);
+        else if (e.data === YT.PlayerState.PLAYING) { slotLoading(s, false); applySlotPrefs(s); }
+        else if (e.data === YT.PlayerState.BUFFERING) slotLoading(s, true);
       },
       onError: () => { setStatus('この動画は埋め込み再生できないためスキップしました'); slotDone(s); },
       onAutoplayBlocked: () => slotAutoplayBlocked(s),
@@ -782,6 +801,9 @@ function slotPlayVimeo(s, v) {
   const p = s.vimeo = new Vimeo.Player(f);
   p.on('ended', () => slotDone(s));
   p.on('error', () => slotDone(s));
+  p.on('play', () => slotLoading(s, false));
+  p.on('bufferstart', () => slotLoading(s, true));
+  p.on('bufferend', () => slotLoading(s, false));
   p.ready().then(() => {
     if (s.resumeTime > 0) { p.setCurrentTime(s.resumeTime); s.resumeTime = 0; }
     applySlotPrefs(s);
@@ -790,6 +812,8 @@ function slotPlayVimeo(s, v) {
 
 function slotPlayFile(s, v) {
   const el = s.videoEl = document.createElement('video');
+  el.addEventListener('playing', () => slotLoading(s, false));
+  el.addEventListener('waiting', () => slotLoading(s, true));
   el.onloadedmetadata = () => {
     noteOrient(s);
     if (s.resumeTime > 0) { el.currentTime = s.resumeTime; s.resumeTime = 0; }
@@ -806,6 +830,8 @@ function slotPlayFile(s, v) {
 function slotPlayHls(s, v) {
   // HLS(m3u8) を hls.js で自前再生する。署名付きURLなので取得は /api/videos 時点のものを使う
   const el = s.videoEl = document.createElement('video');
+  el.addEventListener('playing', () => slotLoading(s, false));
+  el.addEventListener('waiting', () => slotLoading(s, true));
   el.onloadedmetadata = () => {
     noteOrient(s);
     if (s.resumeTime > 0) { el.currentTime = s.resumeTime; s.resumeTime = 0; }
@@ -847,6 +873,7 @@ function slotPlayFrame(s, v) {
     : v.type === 'fc2live' ? `https://live.fc2.com/embedPlayer/?id=${v.id}&lang=ja&suggest=0&thumbnail=1&adultaccess=1`
     : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
   f.allow = 'autoplay; fullscreen; picture-in-picture';
+  f.onload = () => slotLoading(s, false);
   s.stage.appendChild(f);
   // FC2ライブは終了のないライブ配信なのでタイムアウトでの自動送りはしない
   if (v.type !== 'fc2live') s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
@@ -857,6 +884,7 @@ function slotPlayEmbed(s, v) {
   const f = document.createElement('iframe');
   f.src = adapter.src(v.id);
   f.allow = 'autoplay; fullscreen; picture-in-picture';
+  f.onload = () => slotLoading(s, false);
   s.stage.appendChild(f);
   s.embed = { kind: v.type, frame: f, adapter, time: 0, paused: false };
   // プレイヤーから応答がなければ終了も検知できないので、一定時間で次へ進む
