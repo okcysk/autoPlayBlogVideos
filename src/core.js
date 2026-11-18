@@ -258,6 +258,40 @@ export function extractList(html, baseUrl, filter) {
     if (filter) vids = vids.filter((l) => filter.test(l.url));
     return { links: vids, next: findNext(html, baseUrl) };
   }
+  // youporn / redtube は同一プラットフォーム。サムネイル用リンク（文字は再生時間のみ）と
+  // タイトル用リンク（.video-title-text 等）が同じURLで重複するので統合する。
+  // youporn は /watch/<id>/、redtube は /<数字>/ が動画ページ
+  if (/(^|\.)(youporn\.com|redtube\.com)$/i.test(base.host)) {
+    const isYp = /youporn\.com$/i.test(base.host);
+    const pathRe = isYp ? /^\/watch\/\d+\/?$/ : /^\/\d{5,}\/?$/;
+    const byUrl = new Map();
+    for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      const url = absolutize(m[1], baseUrl);
+      if (!url) continue;
+      try {
+        const u = new URL(url);
+        if (u.host !== base.host || !pathRe.test(u.pathname)) continue;
+      } catch { continue; }
+      const cls = (m[0].match(/\bclass=["']([^"']*)["']/i) || [])[1] || '';
+      const titleAttr = (m[0].match(/\btitle=["']([^"']+)["']/i) || [])[1] || '';
+      const text = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const imgTag = m[2].match(/<img\b[^>]*>/i);
+      const alt = imgTag && (imgTag[0].match(/\balt=["']([^"']*)["']/i) || [])[1] || '';
+      const src = imgTag && (imgTag[0].match(/\bdata-src=["']([^"']+)["']/i) || imgTag[0].match(/\bsrc=["']([^"']+)["']/i));
+      const thumb = src && /^https?:/i.test(absolutize(src[1], baseUrl) || '') ? absolutize(src[1], baseUrl) : null;
+      // タイトル系リンク（class に title を含む）を優先し、再生時間だけの文字列は捨てる
+      const cand = (/title/i.test(cls) ? (text || alt || titleAttr) : (titleAttr || alt || text)).trim();
+      const title = cand && !/^\d{1,2}:\d{2}/.test(cand) ? cand : '';
+      const prev = byUrl.get(url) || { url, title: '', thumb: null };
+      if (title && title.length > prev.title.length) prev.title = title;
+      if (thumb && !prev.thumb) prev.thumb = thumb;
+      byUrl.set(url, prev);
+    }
+    let vids = [...byUrl.values()].filter((v) => v.title);
+    if (filter) vids = vids.filter((l) => filter.test(l.url));
+    // タイトルが全く取れない構造なら汎用抽出にフォールバックする
+    if (vids.length) return { links: vids, next: findNext(html, baseUrl) };
+  }
   // video.fc2.com はサーバー描画。動画は /a/content/<id>。
   // タイトルは .c-boxList-111_video_ttl リンクの文字/ title 属性、
   // サムネイルは .c-image-101_image の background-image。
@@ -1002,7 +1036,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       [/^www\.eporner\.com$|(^|\.)eporner\.com$/i, /EP\.video|\/video-[A-Za-z0-9]{6,}\//],
       [/xhamster\.com$/i, /xhcdn\.com|xhamster\.com\/videos\//],
       [/xnxx\.com$/i, /xnxx-cdn\.com|html5player|\/video-[a-z0-9]{6,}\//i],
-      [/javgg\.net$/i, /javgg\.net\/jav\/|metaframe|javcode\.net/i],
+      [/javgg\.net$/i, /metaframe|vidara\.so|earnvid/i],
     ];
     const getPage = async (pageUrl) => {
       let html = null, directErr = null;
