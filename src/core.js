@@ -1061,7 +1061,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
             'User-Agent': UA, 'X-Return-Format': 'html',
             ...(jinaKey ? { Authorization: `Bearer ${jinaKey}` } : {}),
           },
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.timeout(50000),
         });
         if (r.ok) {
           const t = await r.text();
