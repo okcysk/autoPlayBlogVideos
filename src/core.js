@@ -357,6 +357,44 @@ export function extractList(html, baseUrl, filter) {
     }
     return { links: vids, next };
   }
+  // javgg (.co/.club/.net) はサーバー描画。動画は /jav/<コード>/ で、
+  // <article class="item movies"> 内に data-src 画像・.titlecontent・h3 のタイトルがある。
+  // ページネーションは /page/N/（HTMLにはリンクが無いので次ページを合成する）
+  if (/(^|\.)javgg\.(co|club|net|com)$/i.test(base.host)) {
+    const byUrl = new Map();
+    for (const m of html.matchAll(/<article\b[^>]*>([\s\S]*?)<\/article>/gi)) {
+      const block = m[1];
+      const a = block.match(/<a\b[^>]*href=["']([^"']*\/jav\/[^"']+)["']/i);
+      if (!a) continue;
+      const url = absolutize(a[1], baseUrl);
+      if (!url) continue;
+      try {
+        const u = new URL(url);
+        if (u.host !== base.host || !/^\/jav\/[^/]+\/?$/.test(u.pathname)) continue;
+      } catch { continue; }
+      const imgTag = block.match(/<img\b[^>]*>/i);
+      const src = imgTag && (imgTag[0].match(/\bdata-src=["']([^"']+)["']/i) || imgTag[0].match(/\bsrc=["']([^"']+)["']/i));
+      const thumb = src && /^https?:/i.test(absolutize(src[1], baseUrl) || '') ? absolutize(src[1], baseUrl) : null;
+      const code = (block.match(/<h3[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) || [])[1]?.replace(/<[^>]+>/g, '').trim() || '';
+      const tc = (block.match(/<div[^>]*class=["'][^"']*titlecontent[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) || [])[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || '';
+      const title = [code, tc].filter(Boolean).join(' ').trim();
+      const prev = byUrl.get(url);
+      if (prev) {
+        if (title.length > (prev.title || '').length) prev.title = title;
+        if (thumb && !prev.thumb) prev.thumb = thumb;
+      } else byUrl.set(url, { url, title, ...(thumb ? { thumb } : {}) });
+    }
+    let vids = [...byUrl.values()].filter((v) => v.title);
+    if (filter) vids = vids.filter((l) => filter.test(l.url));
+    if (vids.length) {
+      // WP の /page/N/ 形式。現在ページの次を合成して返す（末尾では取得側がエラーになる）
+      const pn = base.pathname.match(/\/page\/(\d+)\/?$/i);
+      const nextNum = pn ? +pn[1] + 1 : 2;
+      const nextBase = base.pathname.replace(/\/page\/\d+\/?$/i, '');
+      const next = `${base.origin}${nextBase}/page/${nextNum}/`;
+      return { links: vids, next };
+    }
+  }
   if (!filter) {
     // 記事っぽいURL（日付・数字・articles 等）が多数あれば、それだけに絞る
     const articleLike = links.filter(l => /\/(20\d\d|\d{3,}|articles?|posts?|entry|archives|recipe|blog)[\/-]/i.test(new URL(l.url).pathname + '/'));
@@ -430,7 +468,7 @@ const VIDEO_LINK_HOSTS = [
   /(^|\.)youtube\.com$/i, /(^|\.)youtu\.be$/i, /(^|\.)dailymotion\.com$/i, /(^|\.)dai\.ly$/i,
   /(^|\.)vimeo\.com$/i, /(^|\.)nicovideo\.jp$/i, /(^|\.)nico\.ms$/i,
   /(^|\.)xvideos\.com$/i, /(^|\.)xhamster\.com$/i, /(^|\.)xnxx\.com$/i,
-  /(^|\.)youporn\.com$/i, /(^|\.)redtube\.com$/i, /(^|\.)javgg\.net$/i, /(^|\.)eporner\.com$/i,
+  /(^|\.)youporn\.com$/i, /(^|\.)redtube\.com$/i, /(^|\.)javgg\.(net|co|club)$/i, /(^|\.)eporner\.com$/i,
   /(^|\.)fc2\.com$/i, /(^|\.)youjizz\.com$/i,
 ];
 function extractVideoLinks(html, pageUrl) {
@@ -840,11 +878,17 @@ export function extractVideos(html, pageUrl) {
       const mm = same.find((c) => c[1] === 'mp4') || same[0];
       if (mm) return [{ type: 'phn', id: `${ph}|${mm[1]}|${mm[2]}` }];
     }
-    // javgg は自前プレイヤーを持たず、第三者埋め込み(metaframe)の iframe を返す
-    if (/(^|\.)javgg\.net$/i.test(ph)) {
-      const em = text.match(/<iframe\b[^>]*class="[^"]*metaframe[^"]*"[^>]*src="([^"]+)"/i)
-        || text.match(/<iframe\b[^>]*src="([^"]+)"[^>]*class="[^"]*metaframe[^"]*"/i);
-      if (em) return [{ type: 'javgg', id: em[1] }];
+    // javgg は自前プレイヤーを持たず、第三者埋め込み(metaframe)の iframe を返す。
+    // .co/.club はボットチェック無しで直接取れる。埋め込みはシングルクォートの場合もある
+    if (/(^|\.)javgg\.(co|club|net|com)$/i.test(ph)) {
+      const ems = [...text.matchAll(/<iframe\b[^>]*?src=["']([^"']+)["'][^>]*>/gi)]
+        .map((m) => m[0] + m[1])
+        .filter((s) => /metaframe/i.test(s))
+        .map((s) => s.match(/src=["']([^"']+)["']/i)?.[1])
+        .filter(Boolean);
+      // vidara.so は埋め込み許可。earnvidjavgg.xyz 等は 403 になることがあるので優先する
+      const pick = ems.find((u) => /vidara\.so/i.test(u)) || ems[0];
+      if (pick) return [{ type: 'javgg', id: pick }];
     }
     // eporner は EP.video.player.vid/hash から /xhr/video/ API で mp4 を解決する。
     // ここでは vid|hash を持つマーカーを返し、handleApi 側で非同期に解決する
@@ -1184,7 +1228,12 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       return { status: 200, body: { links: all, pagesFetched: fetched, next: url } };
     }
     if (u.pathname === '/api/videos') {
-      const url = checkUrl(u.searchParams.get('url'), allowedHosts);
+      let url = checkUrl(u.searchParams.get('url'), allowedHosts);
+      // javgg.net はボットチェックで Workers から取れない。ミラーの javgg.co に読み替える
+      try {
+        const hu = new URL(url);
+        if (/(^|\.)javgg\.net$/i.test(hu.hostname)) { hu.hostname = hu.hostname.replace(/javgg\.net$/i, 'javgg.co'); url = hu.href; }
+      } catch { /* ignore */ }
       // YouTube の動画URLはIDがURLに含まれるのでページ取得なしで返す
       const ytId = youtubeVideoId(url);
       if (ytId) return { status: 200, body: { title: '', videos: [{ type: 'youtube', id: ytId }] } };
