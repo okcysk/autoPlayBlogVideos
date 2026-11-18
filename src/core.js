@@ -395,7 +395,9 @@ const VIDEO_LINK_HOSTS = [
   /(^|\.)tokyomotion\.net$/i, /(^|\.)pornhub\.com$/i, /(^|\.)pornhubpremium\.com$/i,
   /(^|\.)youtube\.com$/i, /(^|\.)youtu\.be$/i, /(^|\.)dailymotion\.com$/i, /(^|\.)dai\.ly$/i,
   /(^|\.)vimeo\.com$/i, /(^|\.)nicovideo\.jp$/i, /(^|\.)nico\.ms$/i,
-  /(^|\.)xvideos\.com$/i, /(^|\.)xhamster\.com$/i, /(^|\.)fc2\.com$/i, /(^|\.)youjizz\.com$/i,
+  /(^|\.)xvideos\.com$/i, /(^|\.)xhamster\.com$/i, /(^|\.)xnxx\.com$/i,
+  /(^|\.)youporn\.com$/i, /(^|\.)redtube\.com$/i, /(^|\.)javgg\.net$/i, /(^|\.)eporner\.com$/i,
+  /(^|\.)fc2\.com$/i, /(^|\.)youjizz\.com$/i,
 ];
 function extractVideoLinks(html, pageUrl) {
   const out = [];
@@ -708,6 +710,66 @@ function extractYouTubeList(html) {
 }
 
 // 記事HTMLから動画を抽出
+// xhamster / xnxx / javgg は Workers の IP から直接取れない（503/403/JSシェル）か
+// 一覧がJS描画のため、Jina Reader の Markdown レンダリング結果から一覧を復元する。
+// 各サイトとも [Next](url) 形式のページネーションリンクを持つ
+const JINA_TUBE_HOST = /(^|\.)(xhamster\.com|xnxx\.com|javgg\.net)$/i;
+const JINA_TUBE_PATH = {
+  'xhamster.com': /^\/videos\/[^/]+\/?$/,
+  'xnxx.com': /^\/video-[a-z0-9]+(\/[^/]*)?\/?$/i,
+  'javgg.net': /^\/jav\/[a-z0-9-]+\/?$/i,
+};
+async function jinaTubePage(pageUrl, jinaKey) {
+  const r = await fetch(`https://r.jina.ai/${pageUrl}`, {
+    headers: {
+      'User-Agent': UA,
+      ...(jinaKey ? { Authorization: `Bearer ${jinaKey}` } : {}),
+    },
+    signal: AbortSignal.timeout(45000),
+  });
+  if (!r.ok) throw new Error(`Jina HTTP ${r.status}: ${pageUrl}`);
+  return r.text();
+}
+async function jinaTubeList(pageUrl, pages, filter, jinaKey) {
+  const baseHost = new URL(pageUrl).hostname.replace(/^www\./, '');
+  const pathRe = JINA_TUBE_PATH[baseHost] || JINA_TUBE_PATH[Object.keys(JINA_TUBE_PATH).find((h) => baseHost.endsWith(h))];
+  const all = [];
+  let url = pageUrl, fetched = 0, next = null;
+  while (url && fetched < pages) {
+    const md = await jinaTubePage(url, jinaKey);
+    fetched++;
+    for (const m of md.matchAll(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+      let u;
+      try { u = new URL(m[2]); } catch { continue; }
+      const h = u.hostname.replace(/^www\./, '');
+      if (!(h === baseHost || h.endsWith('.' + baseHost) || baseHost.endsWith('.' + h))) continue;
+      if (!pathRe || !pathRe.test(u.pathname)) continue;
+      const link = u.href;
+      // リンク文字列から画像記法を除いたものがタイトル。画像リンク(![..](..))はタイトル無し扱い
+      let title = m[1].replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/[*_`]/g, '').trim();
+      // タイトルが取れない場合はリンク先の "Title" 部分を使う
+      if (!title) {
+        const q = m[0].match(/"([^"]{3,})"\)/);
+        if (q) title = q[1];
+      }
+      // 画像リンクの中のサムネイルURLを拾う
+      const img = m[1].match(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/);
+      const thumb = img ? img[1] : null;
+      const prev = all.find((l) => l.url === link);
+      if (prev) {
+        if (title && title.length > (prev.title || '').length) prev.title = title;
+        if (thumb && !prev.thumb) prev.thumb = thumb;
+        continue;
+      }
+      all.push({ url: link, title, ...(thumb ? { thumb } : {}) });
+    }
+    const nm = md.match(/\[(?:Next|next|›|»|→)\]\((https?:\/\/[^)\s]+)\)/);
+    url = nm ? nm[1] : null;
+  }
+  const links = filter ? all.filter((l) => filter.test(l.url)) : all;
+  return { links, pagesFetched: fetched, next: url };
+}
+
 export function extractVideos(html, pageUrl) {
   const out = [];
   const seen = new Set();
@@ -717,11 +779,38 @@ export function extractVideos(html, pageUrl) {
   // xvideos の動画ページは html5player.setVideoUrlHigh/Low に mp4 直リンクがある。
   // 署名付きで期限があるためキュー投入時に毎回取り直す（ここで毎回抽出される）
   try {
-    if (/(^|\.)xvideos\.com$/i.test(new URL(pageUrl).hostname)) {
+    const ph = new URL(pageUrl).hostname;
+    // xvideos / xnxx の動画ページは html5player.setVideoUrlHigh/Low に mp4 直リンクがある。
+    // 署名付きで期限があるためキュー投入時に毎回取り直す（ここで毎回抽出される）
+    if (/(^|\.)(xvideos\.com|xnxx\.com)$/i.test(ph)) {
       const hi = text.match(/html5player\.setVideoUrlHigh\('([^']+)'\)/);
       const lo = text.match(/html5player\.setVideoUrlLow\('([^']+)'\)/);
       const u = hi?.[1] || lo?.[1];
       if (u) return [{ type: 'file', id: u }];
+    }
+    // xhamster はページ内に署名付き HLS(m3u8) が直書きされている。xhcdn は ACAO:* なので hls.js で直接再生できる
+    if (/(^|\.)xhamster\.com$/i.test(ph)) {
+      const m3u8 = text.match(/https:\/\/[^"'\s]*\.m3u8[^"'\s]*/);
+      if (m3u8) return [{ type: 'hls', id: m3u8[0] }];
+    }
+    // redtube / youporn は同一プラットフォームで、"videoUrl":".../media/mp4/?s=<署名>" を持つ。
+    // s= トークンから /media/mp4 API で画質別 mp4 を解決するためマーカーを返す
+    if (/(^|\.)(redtube\.com|youporn\.com)$/i.test(ph)) {
+      const norm = text.replace(/\\\//g, '/');
+      const cands = [...norm.matchAll(/"videoUrl":"[^"]*\/media\/(mp4|hls)\/?\?s=([^"]+)"/g)];
+      // 同じ動画の hls/mp4・画質違いで同じ s= が複数出る。最頻出の s= を本編とみなす
+      const freq = new Map();
+      for (const c of cands) freq.set(c[2], (freq.get(c[2]) || 0) + 1);
+      const topS = [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      const same = cands.filter((c) => c[2] === topS);
+      const mm = same.find((c) => c[1] === 'mp4') || same[0];
+      if (mm) return [{ type: 'phn', id: `${ph}|${mm[1]}|${mm[2]}` }];
+    }
+    // javgg は自前プレイヤーを持たず、第三者埋め込み(metaframe)の iframe を返す
+    if (/(^|\.)javgg\.net$/i.test(ph)) {
+      const em = text.match(/<iframe\b[^>]*class="[^"]*metaframe[^"]*"[^>]*src="([^"]+)"/i)
+        || text.match(/<iframe\b[^>]*src="([^"]+)"[^>]*class="[^"]*metaframe[^"]*"/i);
+      if (em) return [{ type: 'javgg', id: em[1] }];
     }
     // eporner は EP.video.player.vid/hash から /xhr/video/ API で mp4 を解決する。
     // ここでは vid|hash を持つマーカーを返し、handleApi 側で非同期に解決する
@@ -906,14 +995,31 @@ async function dmmList(url, pages, filterRe) {
  */
 export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, allowedOrigins, headers, jinaKey } = {}) {
   try {
-    // eporner は Cloudflare Workers の IP ではスタブページ（title "."）しか返さない。
-    // 直接取得が実ページでなければ Jina Reader / 公開CORSプロキシ経由で HTML を取り直す
+    // eporner / xhamster / xnxx / javgg は Workers の IP ではブロックまたはJSシェルしか
+    // 返さない。直接取得が実ページでなければ Jina Reader / 公開CORSプロキシ経由で取り直す
+    const JINA_PAGE_HOST = /(^|\.)(eporner\.com|xhamster\.com|xnxx\.com|javgg\.net)$/i;
+    const JINA_PAGE_OK = [
+      [/^www\.eporner\.com$|(^|\.)eporner\.com$/i, /EP\.video|\/video-[A-Za-z0-9]{6,}\//],
+      [/xhamster\.com$/i, /xhcdn\.com|xhamster\.com\/videos\//],
+      [/xnxx\.com$/i, /xnxx-cdn\.com|html5player|\/video-[a-z0-9]{6,}\//i],
+      [/javgg\.net$/i, /javgg\.net\/jav\/|metaframe|javcode\.net/i],
+    ];
     const getPage = async (pageUrl) => {
-      const html = await get(pageUrl);
+      let html = null, directErr = null;
+      try { html = await get(pageUrl); } catch (e) { directErr = e; }
       try {
-        if (!/(^|\.)eporner\.com$/i.test(new URL(pageUrl).hostname)) return html;
-        if (/EP\.video|\/video-[A-Za-z0-9]{6,}\//.test(html) && html.length > 20000) return html;
-      } catch { return html; }
+        const host = new URL(pageUrl).hostname;
+        if (!JINA_PAGE_HOST.test(host)) {
+          if (html !== null) return html;
+          throw directErr || new Error('empty page');
+        }
+        if (html !== null && html.length > 20000) {
+          const rule = JINA_PAGE_OK.find(([h]) => h.test(host));
+          if (!rule || rule[1].test(html)) return html;
+        }
+      } catch (e) {
+        if (html === null) throw e;
+      }
       // Jina Reader。APIキーがあれば Bearer 認証でレート制限を緩和できる
       try {
         const r = await fetch(`https://r.jina.ai/${pageUrl}`, {
@@ -925,7 +1031,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         });
         if (r.ok) {
           const t = await r.text();
-          if (t.length > html.length) return t;
+          if (t.length > (html || '').length) return t;
         }
       } catch { /* Jina 失敗時は直接取得分を使う */ }
       // Jina は Workers の共有IPでレート制限されやすいので、別系統の公開CORSプロキシも試す
@@ -936,10 +1042,11 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         });
         if (r.ok) {
           const t = await r.text();
-          if (t.length > html.length) return t;
+          if (t.length > (html || '').length) return t;
         }
       } catch { /* cors.lol 失敗時は直接取得分を使う */ }
-      return html;
+      if (html !== null) return html;
+      throw directErr || new Error(`HTTP error: ${pageUrl}`);
     };
     if (u.pathname === '/api/list') {
       let url = checkUrl(u.searchParams.get('url'), allowedHosts);
@@ -1019,6 +1126,12 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
             thumb: c.image || null,
           }));
           return { status: 200, body: { links, pagesFetched: 1, next: null } };
+        }
+        // xhamster / xnxx / javgg は Worker から直接取れない or JS描画のため
+        // Jina Reader の Markdown レンダリングで一覧を復元する
+        if (JINA_TUBE_HOST.test(lu.hostname)) {
+          const body = await jinaTubeList(url, pages, filter, jinaKey);
+          return { status: 200, body };
         }
       }
       const all = [];
@@ -1253,6 +1366,33 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
             }
           } catch { /* 取れなければこの動画はスキップされる */ }
         }
+        // redtube / youporn は "host|kind|s=" マーカーから /media/<kind> API で
+        // 画質別の直リンク(m3u8 or mp4)を取る
+        if (v.type === 'phn') {
+          try {
+            const [host, kind, s] = v.id.split('|');
+            const apiUrls = [
+              `https://${host}/media/${kind}/?s=${s}`,
+              `https://${host}/media/${kind}?s=${s}`,
+            ];
+            for (const apiUrl of apiUrls) {
+              const r = await fetch(apiUrl, {
+                headers: { 'User-Agent': UA, Referer: `https://${host}/` },
+                signal: AbortSignal.timeout(15000),
+              });
+              if (!r.ok) continue;
+              const arr = await r.json().catch(() => null);
+              if (!Array.isArray(arr) || !arr.length) continue;
+              const pick = arr.find((x) => x.defaultQuality)
+                || arr.find((x) => x.quality === '720')
+                || arr[arr.length - 1];
+              if (pick?.videoUrl) {
+                Object.assign(v, { type: kind === 'mp4' ? 'file' : 'hls', id: pick.videoUrl });
+                break;
+              }
+            }
+          } catch { /* 取れなければこの動画はスキップされる */ }
+        }
       }));
       // twihub の /r/v/<id> は mp4 へ 302 する。ブラウザの <video> にリダイレクトを
       // 追わせると Referer 次第で video.twimg.com に 403 られることがあるため、
@@ -1267,8 +1407,8 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           } catch { /* 解決失敗時は /r/v のまま */ }
         }
       }));
-      // eporner マーカーが解決できなかったものは再生不能なので除外
-      for (let i = videos.length - 1; i >= 0; i--) if (videos[i].type === 'eporner') videos.splice(i, 1);
+      // eporner / phn マーカーが解決できなかったものは再生不能なので除外
+      for (let i = videos.length - 1; i >= 0; i--) if (videos[i].type === 'eporner' || videos[i].type === 'phn') videos.splice(i, 1);
       // Referer 必須の mp4 はプロキシ経由にする（ブラウザからは正しい Referer を送れないため）
       for (const v of videos) {
         if (v.type === 'file' && proxyTarget(v.id)) {

@@ -157,7 +157,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.113</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.114</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -334,6 +334,25 @@ const PRESET_GROUPS = [
     { label: 'Japanese', url: 'https://www.pornhub.com/video?c=111' },
     { label: '人気', url: 'https://www.pornhub.com/video?o=mv' },
   ]},
+  { site: 'xHamster', domain: 'xhamster.com', siteUrl: 'https://xhamster.com/', group: '動画サイト', items: [
+    { label: 'Japanese', url: 'https://xhamster.com/categories/japanese' },
+    { label: '新着', url: 'https://xhamster.com/categories/newest' },
+  ]},
+  { site: 'XNXX', domain: 'www.xnxx.com', siteUrl: 'https://www.xnxx.com/', group: '動画サイト', items: [
+    { label: 'Japanese', url: 'https://www.xnxx.com/best/japanese' },
+    { label: '新着', url: 'https://www.xnxx.com/' },
+  ]},
+  { site: 'YouPorn', domain: 'www.youporn.com', siteUrl: 'https://www.youporn.com/', group: '動画サイト', items: [
+    { label: 'Japan', url: 'https://www.youporn.com/country/jp/japan/' },
+    { label: '新着', url: 'https://www.youporn.com/latest/' },
+  ]},
+  { site: 'RedTube', domain: 'www.redtube.com', siteUrl: 'https://www.redtube.com/', group: '動画サイト', items: [
+    { label: 'Japanese', url: 'https://www.redtube.com/japanese' },
+    { label: '新着', url: 'https://www.redtube.com/latest' },
+  ]},
+  { site: 'JavGG', domain: 'javgg.net', siteUrl: 'https://javgg.net/', group: '動画サイト', items: [
+    { label: 'トップ', url: 'https://javgg.net/' },
+  ]},
   { site: 'FC2ライブ', domain: 'live.fc2.com', siteUrl: 'https://live.fc2.com/adult/?lang=ja', group: 'その他', items: [
     { label: 'アダルト配信一覧', url: 'https://live.fc2.com/adult/?lang=ja' },
   ]},
@@ -342,6 +361,9 @@ const PRESET_GROUPS = [
   ]},
   { site: 'YouTube', domain: 'youtube.com', siteUrl: 'https://okcysk.github.io/youtubeMultiPlayer/', group: 'その他', items: [
     { label: 'マルチプレイヤー', url: 'https://okcysk.github.io/youtubeMultiPlayer/', external: true },
+  ]},
+  { site: 'JavDB', domain: 'javdb.com', siteUrl: 'https://javdb.com/', group: 'その他', items: [
+    { label: 'JavDB', url: 'https://javdb.com/', external: true },
   ]},
 ];
 
@@ -761,7 +783,7 @@ function slotLoad(s, qi, resume = 0) {
   else if (v.type === 'vimeo') slotPlayVimeo(s, v);
   else if (v.type === 'file') slotPlayFile(s, v);
   else if (v.type === 'hls') slotPlayHls(s, v);
-  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow' || v.type === 'openload' || v.type === 'fc2live') slotPlayFrame(s, v);
+  else if (v.type === 'tokyomotion' || v.type === 'pornhub' || v.type === 'javynow' || v.type === 'openload' || v.type === 'fc2live' || v.type === 'javgg') slotPlayFrame(s, v);
   else if (embedAdapters[v.type]) slotPlayEmbed(s, v);
   else s.fallbackTimer = setTimeout(() => slotDone(s), Math.max(10, +$('timeout').value) * 1000);
   scheduleRelayout();
@@ -874,7 +896,7 @@ function slotPlayFrame(s, v) {
   // 操作 API のない埋め込みは iframe 表示とタイムアウトでの自動送りのみ（mp4 解決に失敗した場合のフォールバック）
   const f = document.createElement('iframe');
   f.className = 'np';
-  f.src = v.type === 'openload' ? v.id
+  f.src = v.type === 'openload' || v.type === 'javgg' ? v.id
     : v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
     : v.type === 'javynow' ? `https://javynow.com/player/${v.id}/`
     : v.type === 'fc2live' ? `https://live.fc2.com/embedPlayer/?id=${v.id}&lang=ja&suggest=0&thumbnail=1&adultaccess=1`
