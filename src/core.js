@@ -1596,7 +1596,8 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       const fwd = { 'User-Agent': UA, Referer: referer, ...(range ? { Range: range } : {}) };
       // surrit.com は Cloudflare で塞がれているが、同じパスが複数 CDN ドメインで配信される
       // （サイトの /jmpres/ が 302 で振り分けている先）。その場合は CDN ホストに付け替えて試す
-      let candidates = [target];
+      // phncdn はまれに一時的な取得失敗を返すので1回だけ再試行する
+      let candidates = /phncdn.com$/i.test(t.hostname) ? [target, target] : [target];
       if (/^(.+\.)?surrit\.com$/i.test(t.hostname)) {
         candidates = [];
         for (const d of ['vcsheaye.cc', 'vcmathe.com', 'vcjuligi.com', 'vckeepw.top']) {
