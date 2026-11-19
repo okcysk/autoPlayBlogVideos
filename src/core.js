@@ -720,6 +720,39 @@ function javynowHlsUrl(html) {
   return m ? m[0] : null;
 }
 
+// pornhub の動画ページは mediaDefinitions に画質別 m3u8（phncdn）を持つ。
+// 署名は発行IPに依存しないため /api/hls 経由で中継できる。
+// 公式 embed はクリックを要求されることがあるので、取れれば hls.js 自前再生を優先する
+function pornhubHlsUrls(html) {
+  const bs = String.fromCharCode(92);
+  const norm = decodeEntities(html).split(bs + '/').join('/').split(bs + 'u0026').join('&');
+  const re = new RegExp('"height":([0-9]+),"width":[0-9]+,"defaultQuality":(true|false),"format":"hls","videoUrl":"(https:[^"]+?[.]m3u8[^"]*)"', 'g');
+  const entries = [...norm.matchAll(re)]
+    .map((m) => ({ h: +m[1], def: m[2] === 'true', url: m[3] }));
+  if (!entries.length) {
+    const any = norm.match(new RegExp('"format":"hls","videoUrl":"(https:[^"]+?[.]m3u8[^"]*)"'));
+    if (any) entries.push({ h: 0, def: false, url: any[1] });
+  }
+  // validfrom= 形式（ev-系CDN）は再生確認済み。h= 形式（hv-系）は 410 を返すことがあるので後回し
+  entries.sort((a, b) =>
+    ((b.url.includes('validfrom=') ? 1 : 0) - (a.url.includes('validfrom=') ? 1 : 0))
+    || ((b.def ? 1 : 0) - (a.def ? 1 : 0)) || (b.h - a.h));
+  return [...new Set(entries.map((e) => e.url))].filter((u) => u.includes('validfrom='));
+}
+
+// m3u8 が実際に取れるか確認してから返す（署名切れ・リージョン制限の動画は embed にフォールバック）
+async function pornhubPlayableHls(html) {
+  for (const u of pornhubHlsUrls(html).slice(0, 4)) {
+    try {
+      const r = await fetch(u, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10000) });
+      if (!r.ok) { await r.body?.cancel?.(); continue; }
+      const t = await r.text();
+      if (t.includes('#EXTM3U')) return u;
+    } catch { /* 次の候補 */ }
+  }
+  return null;
+}
+
 // YouTube の ytInitialData（ページ内JSON）から動画一覧を拾う。
 // チャンネルの /videos 等は初期HTMLに動画が埋め込まれているが、
 // リンクはJS描画なのでアンカーでは取れない。videoRenderer / lockupViewModel 両形式に対応
@@ -1287,15 +1320,28 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         }
       }
       const html = await getPage(url);
-      // Pornhub の動画ページは CDN の署名URLがIP紐付けでブラウザから取れないため、
-      // 公式 embed プレイヤー（type 'pornhub' → iframe）だけを返す
+      // Pornhub の動画ページは m3u8 を /api/hls 経由で再生する（公式 embed は
+      // クリックを要求されることがある）。取れない場合のみ embed にフォールバック
       if (/(^|\.)pornhub\.com$/i.test(new URL(url).hostname)) {
         const vk = new URL(url).searchParams.get('viewkey')
           || url.match(/viewkey=([a-z0-9]+)/i)?.[1]
           || url.match(/\/(?:embed|video)\/([a-z0-9]{10,16})/i)?.[1];
         if (vk) {
           const thumb = pageThumb(html, url);
-          return { status: 200, body: { title: pageTitle(html), videos: [{ type: 'pornhub', id: vk.toLowerCase(), ...(thumb ? { thumb } : {}) }] } };
+          let hls = await pornhubPlayableHls(html);
+          if (!hls) {
+            try {
+              const er = await fetch('https://www.pornhub.com/embed/' + vk, {
+                headers: { 'User-Agent': UA, Referer: 'https://www.pornhub.com/' },
+                signal: AbortSignal.timeout(15000),
+              });
+              if (er.ok) hls = await pornhubPlayableHls(await er.text());
+            } catch { /* embed ページが取れなくても embed タイプで再生は可能 */ }
+          }
+          const v = hls
+            ? { type: 'hls', id: u.origin + '/api/hls?u=' + encodeURIComponent(hls) }
+            : { type: 'pornhub', id: vk.toLowerCase() };
+          return { status: 200, body: { title: pageTitle(html), videos: [{ ...v, ...(thumb ? { thumb } : {}) }] } };
         }
       }
       let videos = extractVideos(html, url);
@@ -1396,6 +1442,28 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
               if (hls) Object.assign(v, { type: 'hls', id: hls });
             }
           } catch { /* 取れなければ iframe のまま */ }
+        }
+        // pornhub は公式 embed がクリックを要求することがあるため、動画ページから
+        // m3u8 を取って hls.js 自前再生に切り替える。取れなければ embed のまま
+        if (v.type === 'pornhub') {
+          try {
+            const r = await fetch('https://www.pornhub.com/view_video.php?viewkey=' + v.id, {
+              headers: { 'User-Agent': UA, Referer: 'https://www.pornhub.com/' },
+              signal: AbortSignal.timeout(20000),
+            });
+            let hls = null;
+            if (r.ok) hls = await pornhubPlayableHls(await r.text());
+            if (!hls) {
+              try {
+                const er = await fetch('https://www.pornhub.com/embed/' + v.id, {
+                  headers: { 'User-Agent': UA, Referer: 'https://www.pornhub.com/' },
+                  signal: AbortSignal.timeout(15000),
+                });
+                if (er.ok) hls = await pornhubPlayableHls(await er.text());
+              } catch { /* 次もダメなら embed のまま */ }
+            }
+            if (hls) Object.assign(v, { type: 'hls', id: u.origin + '/api/hls?u=' + encodeURIComponent(hls) });
+          } catch { /* 取れなければ embed のまま */ }
         }
         // eporner は vid|hash から /xhr/video/ API で画質別 mp4 を取る。
         // hash は32桁hexを4分割して各8桁を36進数化したもの（vjs855.js の実装と同じ）
@@ -1523,6 +1591,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       // FC2 は動画ページの Referer を期待する）
       const referer = /(^|\.)video\.fc2\.com$/i.test(t.hostname) ? 'https://video.fc2.com/'
         : /(^|\.)dmm\.co\.jp$/i.test(t.hostname) ? 'https://video.dmm.co.jp/'
+        : (t.hostname === 'phncdn.com' || t.hostname.endsWith('.phncdn.com')) ? 'https://www.pornhub.com/'
         : 'https://www.missav06.net/';
       const fwd = { 'User-Agent': UA, Referer: referer, ...(range ? { Range: range } : {}) };
       // surrit.com は Cloudflare で塞がれているが、同じパスが複数 CDN ドメインで配信される
