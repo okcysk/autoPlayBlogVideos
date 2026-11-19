@@ -662,26 +662,28 @@ function openloadEmbeds(html) {
   return [...urls.filter((u) => /streamtape\.com/.test(u)), ...urls.filter((u) => !/streamtape\.com/.test(u))];
 }
 
-// streamtape の /e/ ページは get_video のURLを
-// `"/streamtape.com/get_" + ('XXXX...get_video?id=...').substring(n)...` のような
-// 文字列連結+substring で難読化する（毎回パターンが変わる）。
-// 文字列リテラル・+・括弧・.substring(n) だけの式に限定して評価する
-function streamtapeVideoPaths(html) {
-  const SAFE = /^(?:\s|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\(|\)|\+|\.substring\(\d+\))*$/;
-  const out = new Set();
-  for (const m of html.matchAll(/innerHTML\s*=\s*([^;]+);/g)) {
-    const ex = m[1].trim();
-    if (!ex.includes('video') || !SAFE.test(ex)) continue;
-    try {
-      const v = eval(ex);
-      if (typeof v === 'string') {
-        for (const u of v.matchAll(/(?:\/\/|https?:\/\/)?(?:[\w.-]*\.)?streamtape\.com\/(get_video\?[^\s"'<>]+)/g)) {
-          out.add(u[1]);
-        }
-      }
-    } catch { /* 式でなければ無視 */ }
+// vsembed の埋め込みIDから /api/download/tiers で利用可能な最高画質を調べ、
+// /api/download/get のURLを返す。このURLは302で署名付きmp4に飛ぶが、
+// トークンは要求元IPに紐付くためWorkerでは解決できない。
+// ブラウザの <video> がリダイレクトを辿ればユーザーIPで再生できる
+async function vsembedFileUrl(embedUrl) {
+  const u = new URL(embedUrl);
+  const id = u.pathname.match(/\/([A-Za-z0-9]{4,32})\/?$/)?.[1];
+  if (!id) return null;
+  try {
+    const r = await fetch(`${u.origin}/api/download/tiers?s=${id}`, {
+      headers: { 'User-Agent': UA, Referer: embedUrl },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const tiers = j?.data?.tiers || [];
+    const tier = ['1080p', '720p', '540p'].find((t) => tiers.some((x) => x.file === t)) || tiers[0]?.file;
+    if (!tier) return null;
+    return `${u.origin}/api/download/get?s=${id}&t=${encodeURIComponent(tier)}`;
+  } catch {
+    return null;
   }
-  return [...out];
 }
 
 // missav の動画ページは packer 難読化 JS に m3u8 URL（surrit.com）を埋め込む。
@@ -1364,34 +1366,16 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         if (m) videos.push({ type: 'file', id: m });
       }
       // openload.mov は packer 難読化JSに外部ホストの埋め込みURLがある。
-      // streamtape は /e/ ページの get_video を解決すれば mp4 直リンクになるので優先する。
-      // 解決できなければ埋め込みURLを iframe で開く（openload タイプ）
+      // vsembed があれば /api/download/get のURLを返す。これは302で署名付きmp4に
+      // 飛ぶがトークンは要求元IP紐付けなので、ブラウザ(<video>)側で解決させる。
+      // それ以外は埋め込みURLを iframe で開く（openload タイプ）
       if (!videos.length && /^openload\.mov$/i.test(new URL(url).hostname)) {
         const embeds = openloadEmbeds(html);
-        const st = embeds.find((e) => /streamtape\.com\/e\//.test(e));
-        if (st) {
+        const vs = embeds.find((e) => /vsembed\.[a-z.]+\/[A-Za-z0-9]+/.test(e));
+        if (vs) {
           try {
-            const eid = st.match(/\/e\/([A-Za-z0-9]+)/)?.[1];
-            // Workers から streamtape が応答しないことがあるのでタイムアウトを付ける
-            const epRes = await fetch(`https://streamtape.com/e/${eid}`, {
-              headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(15000),
-            });
-            if (!epRes.ok) throw new Error(`HTTP ${epRes.status}`);
-            const ep = await epRes.text();
-            // div内の平文 get_video はダミー（500を返す）。JSの結合式から復元したものを使う
-            const candidates = streamtapeVideoPaths(ep);
-            for (const gv of candidates) {
-              try {
-                const r = await fetch(`https://streamtape.com/${gv}`, {
-                  redirect: 'follow',
-                  headers: { 'User-Agent': UA, Referer: `https://streamtape.com/e/${eid}` },
-                  signal: AbortSignal.timeout(15000),
-                });
-                const final = r.url;
-                await r.body?.cancel?.();
-                if (r.ok && /tapecontent\.net/.test(final)) { videos.push({ type: 'file', id: final }); break; }
-              } catch { /* 次の候補 */ }
-            }
+            const file = await vsembedFileUrl(vs);
+            if (file) videos.push({ type: 'file', id: file });
           } catch { /* iframe フォールバックへ */ }
         }
         if (!videos.length && embeds[0]) videos.push({ type: 'openload', id: embeds[0] });
@@ -1617,9 +1601,11 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         });
         return { status: 200, headers: { 'Content-Type': 'application/vnd.apple.mpegurl; charset=utf-8' }, body, stream: true };
       };
+      let lastStatus = 0;
       for (const c of candidates) {
         try {
           const up = await fetch(c, { redirect: 'follow', headers: fwd });
+          lastStatus = up.status;
           if (!up.ok) { await up.body?.cancel?.(); continue; }
           const ctype = up.headers.get('content-type') || '';
           const looksPlaylist = /\.m3u8($|\?)/i.test(new URL(c).pathname) || /mpegurl|m3u8/i.test(ctype);
@@ -1636,7 +1622,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
           return { status: up.status, headers: outHeaders, body: up.body, stream: true };
         } catch { /* 次のミラーを試す */ }
       }
-      throw new Error('hls source not found');
+      throw new Error('hls source not found' + (lastStatus ? ` (HTTP ${lastStatus})` : ''));
     }
     if (u.pathname === '/api/proxy') {
       // Referer 必須サイトの動画を中継する。リダイレクトがあれば最終 URL を取ってから Range 付きで取り直す
