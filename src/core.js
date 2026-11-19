@@ -445,6 +445,9 @@ function findNext(html, baseUrl) {
 const PROXY_REFERERS = [
   [/^(.+\.)?tokyomotion\.net$/i, 'https://www.tokyomotion.net/'],
   [/^(.+\.)?po-kaki-to\.com$/i, 'https://www.po-kaki-to.com/'],
+  // redtube / youporn の CDN は Referer が元サイトでないと 410 を返す
+  [/^(.+\.)?rdtcdn\.com$/i, 'https://www.redtube.com/'],
+  [/^(.+\.)?ypncdn\.com$/i, 'https://www.youporn.com/'],
 ];
 // Referer を付けると 403 になる等、プロキシ経由にしたいが Referer は不要な配信元
 const PROXY_PLAIN = /(^|\.)(twimg\.com|twihub\.link|tapecontent\.net|ahcdn\.com)$/i;
