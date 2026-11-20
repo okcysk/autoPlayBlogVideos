@@ -157,7 +157,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.1.123</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.1.124</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -352,6 +352,14 @@ const PRESET_GROUPS = [
   ]},
   { site: 'JavGG', domain: 'javgg.co', siteUrl: 'https://javgg.co/', group: '動画サイト', items: [
     { label: 'トップ', url: 'https://javgg.co/' },
+  ]},
+  { site: 'javym', domain: 'javym.net', siteUrl: 'https://javym.net/', group: '動画まとめブログ', items: [
+    { label: 'トップ', url: 'https://javym.net/', filter: 'video/\\d+' },
+    { label: '露出', url: 'https://javym.net/search/%E9%9C%B2%E5%87%BA/', filter: 'video/\\d+' },
+  ]},
+  { site: 'zmero', domain: 'zmero.com', siteUrl: 'https://zmero.com/', group: '動画サイト', items: [
+    { label: 'トップ', url: 'https://zmero.com/', filter: 'entry/\\d+' },
+    { label: 'カテゴリ', url: 'https://zmero.com/category/927/', filter: 'entry/\\d+' },
   ]},
   { site: 'FC2ライブ', domain: 'live.fc2.com', siteUrl: 'https://live.fc2.com/adult/?lang=ja', group: 'その他', items: [
     { label: 'アダルト配信一覧', url: 'https://live.fc2.com/adult/?lang=ja' },
