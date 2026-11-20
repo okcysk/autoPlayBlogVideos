@@ -3,8 +3,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-const [major, minor, patch] = pkg.version.split('.').map(Number);
-const version = `${major}.${minor}.${patch + 1}`;
+let [major, minor, patch] = pkg.version.split('.').map(Number);
+patch += 1;
+// パッチが3桁にならないよう、100でマイナーに繰り上げてリセットする
+if (patch >= 100) { minor += 1; patch = 0; }
+const version = `${major}.${minor}.${patch}`;
 
 writeFileSync('package.json', readFileSync('package.json', 'utf8').replace(/"version":\s*"[^"]+"/, `"version": "${version}"`));
 const html = readFileSync('index.html', 'utf8');
