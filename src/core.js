@@ -395,6 +395,29 @@ export function extractList(html, baseUrl, filter) {
       return { links: vids, next };
     }
   }
+  // do-ga.eroterest.net (動画エロタレスト) は /video/detail/<id> が記事。
+  // ページ送りは ?word=<語>&page=N で word は空でも付くため汎用のページ判定では拾えない
+  if (/(^|\.)do-ga\.eroterest\.net$/i.test(base.host)) {
+    const vids = links.filter((l) => /\/video\/detail\/\d+/.test(l.url));
+    if (vids.length) {
+      const want = pageNum(baseUrl) + 1;
+      const word = new URL(baseUrl).searchParams.get('word') || '';
+      let next = null;
+      for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)) {
+        const url = absolutize(m[1], baseUrl);
+        if (!url) continue;
+        try {
+          const u = new URL(url);
+          if (u.pathname !== base.pathname) continue;
+          if ((u.searchParams.get('word') || '') !== word) continue;
+          if (pageNum(url) !== want) continue;
+          next = url;
+          break;
+        } catch { /* ignore */ }
+      }
+      return { links: vids, next };
+    }
+  }
   if (!filter) {
     // 記事っぽいURL（日付・数字・articles 等）が多数あれば、それだけに絞る
     const articleLike = links.filter(l => /\/(20\d\d|\d{3,}|articles?|posts?|entry|archives|recipe|blog)[\/-]/i.test(new URL(l.url).pathname + '/'));
@@ -1380,6 +1403,12 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         }
         if (!videos.length && embeds[0]) videos.push({ type: 'openload', id: embeds[0] });
       }
+      // do-ga.eroterest.net (動画エロタレスト) の詳細ページは JS 内に
+      // Bunny CDN の h264.m3u8 がある。Referer必須なので /api/hls 経由にする
+      if (!videos.length && /(^|\.)do-ga\.eroterest\.net$/i.test(new URL(url).hostname)) {
+        const m3u8 = html.match(/https:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/)?.[0];
+        if (m3u8) videos.push({ type: 'hls', id: `${u.origin}/api/hls?u=${encodeURIComponent(m3u8)}` });
+      }
       // video.fc2.com/a/content/<id> は videoplaylist API が署名付きHLSを返す。
       // m3u8/セグメントの ts-hash は短命なので再生直前に毎回取り直す
       if (!videos.length && /(^|\.)video\.fc2\.com$/i.test(new URL(url).hostname)) {
@@ -1576,6 +1605,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
       const referer = /(^|\.)video\.fc2\.com$/i.test(t.hostname) ? 'https://video.fc2.com/'
         : /(^|\.)dmm\.co\.jp$/i.test(t.hostname) ? 'https://video.dmm.co.jp/'
         : (t.hostname === 'phncdn.com' || t.hostname.endsWith('.phncdn.com')) ? 'https://www.pornhub.com/'
+        : /(^|\.)do-gast\.b-cdn\.net$/i.test(t.hostname) ? 'https://do-ga.eroterest.net/'
         : 'https://www.missav06.net/';
       const fwd = { 'User-Agent': UA, Referer: referer, ...(range ? { Range: range } : {}) };
       // surrit.com は Cloudflare で塞がれているが、同じパスが複数 CDN ドメインで配信される

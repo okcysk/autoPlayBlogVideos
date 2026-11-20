@@ -157,7 +157,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.2.0</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.2.1</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -285,6 +285,10 @@ const PRESET_GROUPS = [
     { label: 'トップ', url: 'https://javym.net/', filter: 'video/\\d+' },
     { label: '露出', url: 'https://javym.net/search/%E9%9C%B2%E5%87%BA/', filter: 'video/\\d+' },
   ]},
+  { site: 'hdouga', domain: 'www.hdouga.com', siteUrl: 'https://www.hdouga.com/', group: '動画まとめブログ', items: [
+    { label: 'トップ', url: 'https://www.hdouga.com/', filter: 'moviehtml/movie' },
+    { label: '露出', url: 'https://www.hdouga.com/?s=%E9%9C%B2%E5%87%BA', filter: 'moviehtml/movie' },
+  ]},
   { site: 'twi-dl', domain: 'www.twi-dl.net', siteUrl: 'https://www.twi-dl.net/', group: '動画リンク集・ランキング', items: [
     { label: 'ランキング', url: 'https://www.twi-dl.net/rank.php', filter: 'v\\.php\\?video=' },
     { label: '新着', url: 'https://www.twi-dl.net/hozon.php', filter: 'v\\.php\\?video=' },
@@ -360,6 +364,10 @@ const PRESET_GROUPS = [
   { site: 'zmero', domain: 'zmero.com', siteUrl: 'https://zmero.com/', group: '動画サイト', items: [
     { label: 'トップ', url: 'https://zmero.com/', filter: 'entry/\\d+' },
     { label: '露出', url: 'https://zmero.com/category/927/', filter: 'entry/\\d+' },
+  ]},
+  { site: '動画エロタレスト', domain: 'do-ga.eroterest.net', siteUrl: 'https://do-ga.eroterest.net/', group: '動画サイト', items: [
+    { label: 'トップ', url: 'https://do-ga.eroterest.net/', filter: 'video/detail/\\d+' },
+    { label: '露出', url: 'https://do-ga.eroterest.net/video/?word=%E9%9C%B2%E5%87%BA', filter: 'video/detail/\\d+' },
   ]},
   { site: 'FC2ライブ', domain: 'live.fc2.com', siteUrl: 'https://live.fc2.com/adult/?lang=ja', group: 'その他', items: [
     { label: 'アダルト配信一覧', url: 'https://live.fc2.com/adult/?lang=ja' },
