@@ -68,9 +68,9 @@
   footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:4px 16px; padding:6px 16px 14px; color:var(--muted); font-size:12px; border-top:1px solid var(--line); }
   footer a { color:var(--muted); flex:none; }
   footer a:hover { color:var(--text); }
-  footer details { flex-basis:100%; text-align:center; }
+  footer details { font-size:10px; }
   footer details summary { cursor:pointer; }
-  footer details p { margin:4px 0 0; line-height:1.7; }
+  footer details p { margin:2px 0 0; line-height:1.5; font-size:10px; }
   aside { min-height:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:auto; }
   #queueToggle, #qClose { display:none; }
   @media (max-width: 900px) {
@@ -160,7 +160,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.2.3</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.2.4</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
