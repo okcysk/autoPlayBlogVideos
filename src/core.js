@@ -745,53 +745,6 @@ function javynowHlsUrl(html) {
   return m ? m[0] : null;
 }
 
-// FC2ライブは embedPlayer が内部で WebSocket + 署名付きHLSを使う。
-// 公式プレイヤーと同じ手順（embedPlayer で cookie 取得 → memberApi で version →
-// getControlServer で WSS+token）で接続情報を解決する。
-// メディアURLはコントロールWSの生存中のみ有効なので、WS はブラウザ側で保持する。
-// 失敗時は null（呼び出し側で iframe embed にフォールバック）
-async function fc2liveSession(channelId) {
-  const jar = new Map();
-  const absorb = (res) => {
-    for (const c of res.headers.getSetCookie?.() || []) {
-      const pair = c.split(';')[0];
-      const i = pair.indexOf('=');
-      if (i > 0) jar.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim());
-    }
-  };
-  const cookie = () => [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
-  const H = { 'User-Agent': UA, Referer: 'https://live.fc2.com/' };
-  const post = (path, body, referer) => fetch(`https://live.fc2.com${path}`, {
-    method: 'POST',
-    headers: {
-      ...H, 'Content-Type': 'application/x-www-form-urlencoded',
-      Cookie: cookie(), Origin: 'https://live.fc2.com',
-      ...(referer ? { Referer: referer } : {}),
-    },
-    body,
-    signal: AbortSignal.timeout(15000),
-  });
-  // 1) embedPlayer ページで PHPSESSID 等の cookie を取得（WS 認証に必須）
-  const ep = await fetch(`https://live.fc2.com/embedPlayer/?id=${channelId}&lang=ja&suggest=0&thumbnail=1&adultaccess=1&autoplay=1`, {
-    headers: H, signal: AbortSignal.timeout(15000),
-  });
-  absorb(ep);
-  await ep.body?.cancel?.();
-  // 2) memberApi で channel_version を取得
-  const mr = await post('/api/memberApi.php', `streamid=${channelId}&channel=1`);
-  absorb(mr);
-  const ver = (await mr.json())?.data?.channel_data?.version;
-  if (!ver) return null;
-  // 3) getControlServer で WSS URL + control_token(JWT) を取得
-  const cr = await post('/api/getControlServer.php',
-    `channel_id=${channelId}&mode=external&channel_version=${encodeURIComponent(ver)}&client_version=1.0.3&client_app=browser_hls&client_type=pc&ipv6=`,
-    `https://live.fc2.com/embedPlayer/?id=${channelId}`);
-  absorb(cr);
-  const cj = await cr.json();
-  if (cj.status !== 0 || !cj.url || !cj.control_token) return null;
-  return { url: cj.url, token: cj.control_token };
-}
-
 // pornhub の動画ページは mediaDefinitions に画質別 m3u8（phncdn）を持つ。
 // 署名は発行IPに依存しないため /api/hls 経由で中継できる。
 // 公式 embed はクリックを要求されることがあるので、取れれば hls.js 自前再生を優先する
@@ -1369,8 +1322,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         return { status: 200, body: { title: '', videos: [{ type: 'hls', id: url }] } };
       }
       // FC2ライブの視聴ページは配信が websocket+HLS で、ページ自体に動画URLがない。
-      // HLS が解決できれば hls.js 自前再生（音量・ミュート・速度が効く）。
-      // 失敗時は公式 embedPlayer を iframe で埋め込む type 'fc2live' にフォールバック
+      // 公式 embedPlayer を iframe で埋め込む type 'fc2live' を返す
       {
         const lid = new URL(url).hostname === 'live.fc2.com' ? url.match(/\/(\d{5,})\//)?.[1] : null;
         if (lid) {
@@ -1389,13 +1341,7 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
             const cd = j?.data?.channel_data || {};
             title = [cd.title, cd.fee ? '（有料）' : ''].filter(Boolean).join(' ');
           } catch { /* タイトルが取れなくても再生は可能 */ }
-          let video = { type: 'fc2live', id: lid };
-          try {
-            const ses = await fc2liveSession(lid);
-            // type 'fc2hls': ブラウザがコントロールWSを保持しながら hls.js で再生する
-            if (ses) video = { type: 'fc2hls', id: `${ses.url}?control_token=${encodeURIComponent(ses.token)}` };
-          } catch { /* iframe にフォールバック */ }
-          return { status: 200, body: { title, videos: [video] } };
+          return { status: 200, body: { title, videos: [{ type: 'fc2live', id: lid }] } };
         }
       }
       const html = await getPage(url);
@@ -1660,7 +1606,6 @@ export async function handleApi(u, { fetchHtml: get = fetchHtml, allowedHosts, a
         : /(^|\.)dmm\.co\.jp$/i.test(t.hostname) ? 'https://video.dmm.co.jp/'
         : (t.hostname === 'phncdn.com' || t.hostname.endsWith('.phncdn.com')) ? 'https://www.pornhub.com/'
         : /(^|\.)do-gast\.b-cdn\.net$/i.test(t.hostname) ? 'https://do-ga.eroterest.net/'
-        : /\.live\.fc2\.com$/i.test(t.hostname) ? 'https://live.fc2.com/'
         : 'https://www.missav06.net/';
       const fwd = { 'User-Agent': UA, Referer: referer, ...(range ? { Range: range } : {}) };
       // surrit.com は Cloudflare で塞がれているが、同じパスが複数 CDN ドメインで配信される
