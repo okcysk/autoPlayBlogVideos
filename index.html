@@ -160,7 +160,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.2.6</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.2.7</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -916,7 +916,7 @@ function slotPlayFrame(s, v) {
   f.src = v.type === 'openload' || v.type === 'javgg' ? v.id
     : v.type === 'pornhub' ? `https://www.pornhub.com/embed/${v.id}?autoplay=1`
     : v.type === 'javynow' ? `https://javynow.com/player/${v.id}/`
-    : v.type === 'fc2live' ? `https://live.fc2.com/embedPlayer/?id=${v.id}&lang=ja&suggest=0&thumbnail=1&adultaccess=1`
+    : v.type === 'fc2live' ? `https://live.fc2.com/embedPlayer/?id=${v.id}&lang=ja&suggest=0&thumbnail=1&adultaccess=1&autoplay=1&volumezero=1`
     : `https://www.tokyomotion.net/embed/${v.id}?autoplay=1`;
   f.allow = 'autoplay; fullscreen; picture-in-picture';
   f.onload = () => slotLoading(s, false);
