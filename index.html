@@ -71,9 +71,10 @@
   footer details { font-size:10px; }
   footer details summary { cursor:pointer; }
   footer details p { margin:2px 0 0; line-height:1.5; font-size:10px; }
-  #siteGuide { padding:10px 16px 16px; color:var(--muted); font-size:12px; }
-  #siteGuide > summary { cursor:pointer; font-size:12px; }
-  .siteGuideBody { max-width:960px; margin:8px auto 0; }
+  #siteGuide { color:var(--muted); }
+  #siteGuide > summary { cursor:pointer; font-size:10px; }
+  #siteGuide[open] { flex-basis:100%; order:9; }
+  .siteGuideBody { width:100%; margin-top:6px; }
   .siteGuideBody h3 { font-size:12px; margin:10px 0 2px; color:var(--text); }
   .siteGuideBody p { margin:0; line-height:1.6; font-size:11px; }
   .siteGuideNote { margin-top:12px !important; border-top:1px solid var(--line); padding-top:8px; }
@@ -166,7 +167,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.2.12</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.2.13</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -189,8 +190,14 @@
     <ol id="queue"></ol>
   </aside>
 </main>
-<details id="siteGuide"><summary>対応サイト一覧と使い方</summary><div class="siteGuideBody">
-<h3>ToxicStream</h3><p>ToxicStreamのカテゴリページや一覧ページのURLを貼るだけで、まとめ記事内の動画を自動抽出し、連続再生や複数画面での同時再生ができます。</p>
+
+<footer>
+  <div id="keys"><kbd>1-9</kbd> 同時再生数 · <kbd>WASD</kbd>/<kbd>Tab</kbd> フォーカス移動 · <kbd>Shift</kbd>+各キーで全画面に適用 · <kbd>B/N</kbd> 前後の動画 · <kbd>Z/X</kbd> 5秒 · <kbd>C/V</kbd> 30秒 · <kbd>↑/↓</kbd> 音量±10% · <kbd>M</kbd> ミュート · <kbd>F/G/H</kbd> 再生速度（等速/2.5倍/10倍） · <kbd>T</kbd> 全画面 · <kbd>Space</kbd> 再生/停止</div>
+  <a href="mailto:okcysk@gmail.com">okcysk@gmail.com</a>
+  <a href="https://x.com/okcysk46770" target="_blank" rel="noopener">X: @okcysk46770</a>
+  <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSc7MyyJaD1YJLHzS2oYbVgQaono_sFIBUAHIID68HomW41pHQ/viewform" target="_blank" rel="noopener">要望・不具合匿名フォーム</a>
+  <details id="siteList" hidden><summary>対応サイト一覧</summary><p>ToxicStream / おなりずむ / ポッカキット / 露出羞恥に魅せられて / ヌキストリーム / javym / hdouga / twi-dl / monsnodes / twihub / missav / xvideo-jp / FC2動画 / DMM動画 / TXXX / EPORNER / openload / Pornhub / xHamster / XNXX / YouPorn / RedTube / JavGG / zmero / 動画エロタレスト / FC2ライブ / Spankbang / YouTube</p><h3>このツールについて</h3><p>「動画サイト複数再生」は、ブログ記事や動画まとめサイトの一覧ページURLを入力するだけで、ページ内の記事から動画を自動で抽出し、連続再生や複数画面での同時再生ができる無料のブラウザツールです。FC2動画・DMM動画・xvideo-jp・openload・missav・Pornhub・TXXX・twihub・twi-dl・ヌキストリーム・monsnode・monsnodes・ToxicStream・おなりずむ・ポッカキット・露出羞恥に魅せられて・javym・hdouga・zmero・動画エロタレスト など、複数の動画サイトに対応しています。キーボードだけで再生・一時停止・シーク・音量・再生速度の操作ができ、シャッフル再生やサムネイル付きの再生キュー、URLを共有して同じ再生状態を再現する機能も備えています。</p><p>使い方は簡単です。対応サイトの一覧ページ（カテゴリ・検索結果・ランキングなど）のURLを入力欄に貼り付け、必要に応じてページ数と記事URLの絞り込み正規表現を指定して「読み込んで再生」を押すだけです。抽出された動画は自動で再生キューに追加され、再生が始まります。</p></details>
+<details id="siteGuide"><summary>対応サイト一覧と使い方</summary><div class="siteGuideBody"><h3>ToxicStream</h3><p>ToxicStreamのカテゴリページや一覧ページのURLを貼るだけで、まとめ記事内の動画を自動抽出し、連続再生や複数画面での同時再生ができます。</p>
 <h3>おなりずむ</h3><p>おなりずむのトップページのURLを入力すると、まとめブログ記事の動画を一覧から自動で読み込み、連続再生・複数画面での同時再生ができます。</p>
 <h3>ポッカキット</h3><p>ポッカキットのアーカイブページのURLを貼るだけで、動画まとめ記事を自動抽出して連続再生できます。複数画面での同時再生にも対応しています。</p>
 <h3>露出羞恥に魅せられて</h3><p>露出羞恥に魅せられての一覧ページのURLを入力すると、記事内の動画をまとめて抽出し、連続再生や複数画面での同時再生ができます。</p>
@@ -221,12 +228,6 @@
 <h3>YouTube</h3><p>YouTubeは専用のマルチプレイヤー版ツールで、動画の連続再生・複数画面での同時再生ができます。</p>
 <p class="siteGuideNote">使い方：対応サイトの一覧ページ（カテゴリ・検索結果・ランキングなど）のURLを入力欄に貼り付け、「読み込んで再生」を押すだけです。抽出された動画は自動で再生キューに追加され、連続再生が始まります。複数画面での同時再生にも対応しています。</p>
 </div></details>
-<footer>
-  <div id="keys"><kbd>1-9</kbd> 同時再生数 · <kbd>WASD</kbd>/<kbd>Tab</kbd> フォーカス移動 · <kbd>Shift</kbd>+各キーで全画面に適用 · <kbd>B/N</kbd> 前後の動画 · <kbd>Z/X</kbd> 5秒 · <kbd>C/V</kbd> 30秒 · <kbd>↑/↓</kbd> 音量±10% · <kbd>M</kbd> ミュート · <kbd>F/G/H</kbd> 再生速度（等速/2.5倍/10倍） · <kbd>T</kbd> 全画面 · <kbd>Space</kbd> 再生/停止</div>
-  <a href="mailto:okcysk@gmail.com">okcysk@gmail.com</a>
-  <a href="https://x.com/okcysk46770" target="_blank" rel="noopener">X: @okcysk46770</a>
-  <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSc7MyyJaD1YJLHzS2oYbVgQaono_sFIBUAHIID68HomW41pHQ/viewform" target="_blank" rel="noopener">要望・不具合匿名フォーム</a>
-  <details id="siteList" hidden><summary>対応サイト一覧</summary><p>ToxicStream / おなりずむ / ポッカキット / 露出羞恥に魅せられて / ヌキストリーム / javym / hdouga / twi-dl / monsnodes / twihub / missav / xvideo-jp / FC2動画 / DMM動画 / TXXX / EPORNER / openload / Pornhub / xHamster / XNXX / YouPorn / RedTube / JavGG / zmero / 動画エロタレスト / FC2ライブ / Spankbang / YouTube</p><h3>このツールについて</h3><p>「動画サイト複数再生」は、ブログ記事や動画まとめサイトの一覧ページURLを入力するだけで、ページ内の記事から動画を自動で抽出し、連続再生や複数画面での同時再生ができる無料のブラウザツールです。FC2動画・DMM動画・xvideo-jp・openload・missav・Pornhub・TXXX・twihub・twi-dl・ヌキストリーム・monsnode・monsnodes・ToxicStream・おなりずむ・ポッカキット・露出羞恥に魅せられて・javym・hdouga・zmero・動画エロタレスト など、複数の動画サイトに対応しています。キーボードだけで再生・一時停止・シーク・音量・再生速度の操作ができ、シャッフル再生やサムネイル付きの再生キュー、URLを共有して同じ再生状態を再現する機能も備えています。</p><p>使い方は簡単です。対応サイトの一覧ページ（カテゴリ・検索結果・ランキングなど）のURLを入力欄に貼り付け、必要に応じてページ数と記事URLの絞り込み正規表現を指定して「読み込んで再生」を押すだけです。抽出された動画は自動で再生キューに追加され、再生が始まります。</p></details>
 </footer>
 </div>
 
