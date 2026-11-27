@@ -71,6 +71,12 @@
   footer details { font-size:10px; }
   footer details summary { cursor:pointer; }
   footer details p { margin:2px 0 0; line-height:1.5; font-size:10px; }
+  #siteGuide { padding:10px 16px 16px; color:var(--muted); font-size:12px; }
+  #siteGuide > summary { cursor:pointer; font-size:12px; }
+  .siteGuideBody { max-width:960px; margin:8px auto 0; }
+  .siteGuideBody h3 { font-size:12px; margin:10px 0 2px; color:var(--text); }
+  .siteGuideBody p { margin:0; line-height:1.6; font-size:11px; }
+  .siteGuideNote { margin-top:12px !important; border-top:1px solid var(--line); padding-top:8px; }
   aside { min-height:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:auto; }
   #queueToggle, #qClose { display:none; }
   @media (max-width: 900px) {
@@ -160,7 +166,7 @@
 <div id="app">
 <header>
   <!-- バージョンは commit 時に .githooks/bump-version.mjs が自動で更新する -->
-  <h1>動画サイト複数再生 <span class="ver">v0.2.11</span></h1>
+  <h1>動画サイト複数再生 <span class="ver">v0.2.12</span></h1>
   <div id="presetWrap">
     <button id="presetBtn" type="button">読込元サイト ▾</button>
     <div id="presetGrid" hidden></div>
@@ -183,6 +189,38 @@
     <ol id="queue"></ol>
   </aside>
 </main>
+<details id="siteGuide"><summary>対応サイト一覧と使い方</summary><div class="siteGuideBody">
+<h3>ToxicStream</h3><p>ToxicStreamのカテゴリページや一覧ページのURLを貼るだけで、まとめ記事内の動画を自動抽出し、連続再生や複数画面での同時再生ができます。</p>
+<h3>おなりずむ</h3><p>おなりずむのトップページのURLを入力すると、まとめブログ記事の動画を一覧から自動で読み込み、連続再生・複数画面での同時再生ができます。</p>
+<h3>ポッカキット</h3><p>ポッカキットのアーカイブページのURLを貼るだけで、動画まとめ記事を自動抽出して連続再生できます。複数画面での同時再生にも対応しています。</p>
+<h3>露出羞恥に魅せられて</h3><p>露出羞恥に魅せられての一覧ページのURLを入力すると、記事内の動画をまとめて抽出し、連続再生や複数画面での同時再生ができます。</p>
+<h3>ヌキストリーム</h3><p>ヌキストリームのトップやカテゴリページのURLを貼るだけで、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>javym</h3><p>javymのトップページや検索結果ページのURLを入力すると、記事内の動画を自動抽出し、連続再生や複数画面での同時再生ができます。</p>
+<h3>hdouga</h3><p>hdougaのトップページや検索結果のURLを貼るだけで、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>twi-dl</h3><p>twi-dlのランキングや新着ページのURLを入力すると、動画リンクを自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>Monsnode</h3><p>Monsnodeの新着ページやランキングページのURLを貼るだけで、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>Monsnodes</h3><p>MonsnodesのPick・New・RankingページのURLを入力すると、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>twihub</h3><p>twihubのリアルタイム・週間ランキングページのURLを貼るだけで、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>missav</h3><p>missavのジャンル別一覧ページのURLを入力すると、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>xvideo-jp</h3><p>xvideo-jpの週間・月間・新着ページのURLを貼るだけで、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>FC2動画</h3><p>FC2動画のカテゴリ別一覧ページのURLを入力すると、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>DMM動画</h3><p>DMM動画のシリーズ一覧ページのURLを貼るだけで、サンプル動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>TXXX</h3><p>TXXXのJapanese・人気・新着ページのURLを入力すると、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>EPORNER</h3><p>EPORNERのHD・新着ページのURLを貼るだけで、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>openload</h3><p>openloadの急上昇・人気ページのURLを入力すると、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>Pornhub</h3><p>PornhubのJapanese・人気ページのURLを貼るだけで、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>xHamster</h3><p>xHamsterのJapanese・新着カテゴリページのURLを入力すると、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>XNXX</h3><p>XNXXのJapanese・新着ページのURLを貼るだけで、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>YouPorn</h3><p>YouPornのJapan・新着ページのURLを入力すると、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>RedTube</h3><p>RedTubeのJapanese・新着ページのURLを貼るだけで、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>JavGG</h3><p>JavGGのトップページのURLを入力すると、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>zmero</h3><p>zmeroのトップページやカテゴリページのURLを貼るだけで、DMM動画の埋め込みを自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>動画エロタレスト</h3><p>動画エロタレストのトップや検索結果ページのURLを入力すると、動画を自動抽出して連続再生・複数画面での同時再生ができます。</p>
+<h3>FC2ライブ</h3><p>FC2ライブのアダルト配信一覧ページのURLを貼るだけで、配信中のチャンネルを一覧から選んで再生できます。</p>
+<h3>Spankbang</h3><p>Spankbangは専用のマルチプレイヤー版ツールで、動画の連続再生・複数画面での同時再生ができます。</p>
+<h3>YouTube</h3><p>YouTubeは専用のマルチプレイヤー版ツールで、動画の連続再生・複数画面での同時再生ができます。</p>
+<p class="siteGuideNote">使い方：対応サイトの一覧ページ（カテゴリ・検索結果・ランキングなど）のURLを入力欄に貼り付け、「読み込んで再生」を押すだけです。抽出された動画は自動で再生キューに追加され、連続再生が始まります。複数画面での同時再生にも対応しています。</p>
+</div></details>
 <footer>
   <div id="keys"><kbd>1-9</kbd> 同時再生数 · <kbd>WASD</kbd>/<kbd>Tab</kbd> フォーカス移動 · <kbd>Shift</kbd>+各キーで全画面に適用 · <kbd>B/N</kbd> 前後の動画 · <kbd>Z/X</kbd> 5秒 · <kbd>C/V</kbd> 30秒 · <kbd>↑/↓</kbd> 音量±10% · <kbd>M</kbd> ミュート · <kbd>F/G/H</kbd> 再生速度（等速/2.5倍/10倍） · <kbd>T</kbd> 全画面 · <kbd>Space</kbd> 再生/停止</div>
   <a href="mailto:okcysk@gmail.com">okcysk@gmail.com</a>
